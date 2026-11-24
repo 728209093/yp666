@@ -1,0 +1,23 @@
+{
+  "name": "yp666",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "pnpm@11.5.2",
+  "scripts": {
+    "dev": "pnpm --filter @yp666/shared build && concurrently -k -n api,web,admin -c yellow,green,cyan \"pnpm --filter @yp666/api dev\" \"pnpm --filter @yp666/web dev\" \"pnpm --filter @yp666/admin dev\"",
+    "build": "pnpm --filter @yp666/shared build && pnpm --filter @yp666/api build && pnpm --filter @yp666/web build && pnpm --filter @yp666/admin build",
+    "typecheck": "pnpm -r typecheck",
+    "db:generate": "pnpm --filter @yp666/api db:generate",
+    "db:push": "pnpm --filter @yp666/api db:push",
+    "test": "pnpm --filter @yp666/api test",
+    "test:e2e": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.58.0",
+    "@types/node": "^24.0.0",
+    "concurrently": "^9.2.1",
+    "dotenv": "^17.2.3",
+    "mysql2": "^3.15.3",
+    "typescript": "^5.9.3"
+  }
+}

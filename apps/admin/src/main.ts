@@ -1,0 +1,9 @@
+import { createApp, h } from 'vue';
+import {ElButton, ElColorPicker, ElConfigProvider, ElDialog, ElForm, ElFormItem, ElInput, ElInputNumber, ElLoading, ElSwitch} from 'element-plus';
+import zhCn from 'element-plus/es/locale/lang/zh-cn';
+import 'element-plus/dist/index.css';
+import './style.css';
+import App from './App.vue';
+const app = createApp({render: () => h(ElConfigProvider, {locale: zhCn}, {default: () => h(App)})});
+for (const component of [ElButton, ElColorPicker, ElDialog, ElForm, ElFormItem, ElInput, ElInputNumber, ElSwitch]) app.use(component);
+app.use(ElLoading).mount('#app');

@@ -1,0 +1,92 @@
+generator client {
+  provider   = "prisma-client-js"
+  engineType = "client"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model Site {
+  id          Int       @id @default(1)
+  draft       Json
+  published   Json
+  publishedAt DateTime? @db.DateTime(3)
+  updatedAt   DateTime  @updatedAt @db.DateTime(3)
+}
+
+model Admin {
+  id           String         @id @default(cuid()) @db.VarChar(32)
+  username     String         @unique @db.VarChar(64)
+  passwordHash String         @db.VarChar(255)
+  createdAt    DateTime       @default(now()) @db.DateTime(3)
+  sessions     AdminSession[]
+}
+
+model AdminSession {
+  id        String   @id @default(cuid()) @db.VarChar(32)
+  tokenHash String   @unique @db.Char(64)
+  adminId   String   @db.VarChar(32)
+  admin     Admin    @relation(fields: [adminId], references: [id], onDelete: Cascade)
+  expiresAt DateTime @db.DateTime(3)
+  createdAt DateTime @default(now()) @db.DateTime(3)
+  @@index([expiresAt])
+}
+
+model Visitor {
+  id                    String        @id @default(cuid()) @db.VarChar(32)
+  tokenHash             String        @unique @db.Char(64)
+  verifiedUntil         DateTime?     @db.DateTime(3)
+  createdAt             DateTime      @default(now()) @db.DateTime(3)
+  lastSeenAt            DateTime      @default(now()) @db.DateTime(3)
+  visits                Visit[]
+  challenges            Challenge[]
+  conversation          Conversation?
+}
+
+model Visit {
+  id        String   @id @default(cuid()) @db.VarChar(32)
+  visitorId String   @db.VarChar(32)
+  visitor   Visitor  @relation(fields: [visitorId], references: [id], onDelete: Cascade)
+  date      String   @db.Char(10)
+  verified  Boolean  @default(false)
+  createdAt DateTime @default(now()) @db.DateTime(3)
+  @@unique([visitorId, date])
+  @@index([date])
+}
+
+model Challenge {
+  id        String    @id @default(cuid()) @db.VarChar(32)
+  visitorId String    @db.VarChar(32)
+  visitor   Visitor   @relation(fields: [visitorId], references: [id], onDelete: Cascade)
+  targetX   Int
+  attempts  Int       @default(0)
+  consumed  Boolean   @default(false)
+  createdAt DateTime  @default(now()) @db.DateTime(3)
+  expiresAt DateTime  @db.DateTime(3)
+  @@index([visitorId, expiresAt])
+  @@index([expiresAt])
+}
+
+model Conversation {
+  id           String    @id @default(cuid()) @db.VarChar(32)
+  visitorId    String    @unique @db.VarChar(32)
+  visitor      Visitor   @relation(fields: [visitorId], references: [id], onDelete: Cascade)
+  visitorLabel String    @db.VarChar(40)
+  unreadCount  Int       @default(0)
+  createdAt    DateTime  @default(now()) @db.DateTime(3)
+  updatedAt    DateTime  @updatedAt @db.DateTime(3)
+  messages     Message[]
+  @@index([updatedAt])
+}
+
+model Message {
+  id             String       @id @default(cuid()) @db.VarChar(32)
+  conversationId String       @db.VarChar(32)
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  role           String       @db.VarChar(16)
+  content        String       @db.Text
+  createdAt      DateTime     @default(now()) @db.DateTime(3)
+  @@index([conversationId, createdAt])
+}

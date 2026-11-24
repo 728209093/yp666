@@ -1,0 +1,45 @@
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.p12
+*.pfx
+*.jks
+
+# Private server connection notes
+/DATABASE.md
+
+# Dependencies and build output
+node_modules/
+.pnpm-store/
+dist/
+.vite/
+*.tsbuildinfo
+
+# Runtime uploads, database dumps, and logs
+data/
+*.sql
+*.sql.gz
+*.sqlite
+*.sqlite3
+*.db
+*.log
+
+# Test results and coverage
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/
+coverage/
+
+# Local editors and operating system files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+Desktop.ini
