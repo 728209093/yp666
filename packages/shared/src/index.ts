@@ -42,7 +42,7 @@ export interface BootstrapResponse {
   site: Pick<SiteSettings, 'brandName' | 'title' | 'subtitle' | 'avatarUrl' | 'primaryColor' | 'verificationEnabled'>;
   verificationRequired: boolean;
   verified: boolean;
-  captchaProvider: 'local' | 'turnstile';
+  captchaProvider: 'local' | 'slider' | 'turnstile';
   turnstileSiteKey?: string;
 }
 export interface SliderChallenge {id: string; kind: 'slider'; background: string; piece: string; width: number; height: number; pieceSize: number; pieceY: number; expiresAt: string}

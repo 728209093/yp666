@@ -30,6 +30,7 @@ async function main() {
   await mkdir(uploadDirectory,{recursive:true});
   const app=await NestFactory.create<NestExpressApplication>(AppModule,{bodyParser:false});
   app.getHttpAdapter().getInstance().disable('x-powered-by');
+  if (process.env.TRUST_PROXY === 'loopback') app.set('trust proxy','loopback');
   app.useBodyParser('json',{limit:'128kb'});
   app.use(cookieParser());
   app.use(helmet({crossOriginResourcePolicy:{policy:'same-site'}}));

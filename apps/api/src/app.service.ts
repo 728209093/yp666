@@ -13,6 +13,7 @@ import { BadRequestException, ForbiddenException, NotFoundException, ServiceUnav
 import { DatabaseService } from './database.service.js';
 import { allowedOrigins, captchaProvider, uploadDirectory } from './config.js';
 import { challengeIsValid, hashToken, newToken, parse, shanghaiDate } from './security.js';
+import { renderSliderPuzzle } from './puzzle.js';
 
 const MS_MINUTE=60_000;
 const ADMIN_SESSION_HOURS=12;
@@ -24,7 +25,7 @@ const messageShape=(row: {id:string;role:string;content:string;createdAt:Date}):
 const summaryShape=(row: {id:string;visitorLabel:string;unreadCount:number;createdAt:Date;updatedAt:Date;messages:{content:string}[]}): ConversationSummary => ({id:row.id,visitorLabel:row.visitorLabel,unreadCount:row.unreadCount,createdAt:row.createdAt.toISOString(),updatedAt:row.updatedAt.toISOString(),lastMessage:row.messages[0]?.content||'暂无消息'});
 
 function clampSite(value: unknown): SiteDocument { return parse(siteDocumentSchema,value); }
-function maskPath() { return 'M0 0H14C14 8 30 8 30 0H44V44H0Z'; }
+
 
 @Injectable()
 export class AppService implements OnApplicationBootstrap {
@@ -80,17 +81,12 @@ export class AppService implements OnApplicationBootstrap {
   }
 
   async createChallenge(visitorId:string):Promise<SliderChallenge> {
-    if(captchaProvider!=='local') throw new BadRequestException('当前站点使用第三方安全验证');
+    if(captchaProvider==='turnstile') throw new BadRequestException('当前站点使用第三方安全验证');
     await this.db.challenge.deleteMany({where:{OR:[{expiresAt:{lt:new Date()}},{visitorId,consumed:true}]}});
     const targetX=randomInt(62,220);
     const pieceY=randomInt(48,112);
     const id=newToken();
-    const backgroundSvg=Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${IMAGE_WIDTH}" height="${IMAGE_HEIGHT}" viewBox="0 0 ${IMAGE_WIDTH} ${IMAGE_HEIGHT}"><defs><linearGradient id="sky" x2="0" y2="1"><stop stop-color="#d5e4df"/><stop offset="1" stop-color="#f5e8cf"/></linearGradient><linearGradient id="hill" x2="0" y2="1"><stop stop-color="#8ca184"/><stop offset="1" stop-color="#496e5a"/></linearGradient><pattern id="grain" width="12" height="12" patternUnits="userSpaceOnUse"><circle cx="3" cy="5" r="0.8" fill="#fff" opacity=".18"/><circle cx="10" cy="2" r=".5" fill="#29483b" opacity=".12"/></pattern></defs><rect width="320" height="180" fill="url(#sky)"/><circle cx="251" cy="44" r="22" fill="#f3d998" opacity=".85"/><path d="M0 109 51 65 84 98 131 49 187 106 220 74 275 112 320 65V180H0Z" fill="#9ea992" opacity=".72"/><path d="M0 132 51 97 88 125 151 74 215 132 259 88 320 125V180H0Z" fill="url(#hill)"/><path d="M0 153Q75 133 140 157T320 143V180H0Z" fill="#517560"/><g fill="#f4f0df" opacity=".5"><circle cx="50" cy="128" r="2"/><circle cx="88" cy="145" r="3"/><circle cx="202" cy="139" r="2"/><circle cx="283" cy="130" r="2.5"/><circle cx="169" cy="154" r="1.6"/></g><rect width="320" height="180" fill="url(#grain)"/><path d="${maskPath()}" transform="translate(${targetX} ${pieceY})" fill="#344a3f" fill-opacity=".48" stroke="#fbfcf7" stroke-opacity=".8" stroke-width="1.5" stroke-dasharray="4 3"/><text x="12" y="165" font-family="sans-serif" font-size="10" fill="#fff" opacity=".84">沿着山间步道，慢慢走</text></svg>`);
-    const background=await sharp(backgroundSvg).png().toBuffer();
-    const pieceMask=Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${PIECE_SIZE}" height="${PIECE_SIZE}" viewBox="0 0 ${PIECE_SIZE} ${PIECE_SIZE}"><path d="${maskPath()}" fill="#fff"/></svg>`);
-    const uncutSvg=backgroundSvg.toString().replace(/<path d="M0 0H14C14 8 30 8 30 0H44V44H0Z" transform="translate\([^"]+\)"[^>]+\/>/,'');
-    const original=await sharp(Buffer.from(uncutSvg)).png().toBuffer();
-    const piece=await sharp(original).extract({left:targetX,top:pieceY,width:PIECE_SIZE,height:PIECE_SIZE}).composite([{input:pieceMask,blend:'dest-in'}]).png().toBuffer();
+    const {background,piece}=await renderSliderPuzzle(targetX,pieceY);
     await this.db.challenge.create({data:{id:hashToken(id).slice(0,32),visitorId,targetX,expiresAt:new Date(Date.now()+2*MS_MINUTE)}});
     return {id,kind:'slider',background:`data:image/png;base64,${background.toString('base64')}`,piece:`data:image/png;base64,${piece.toString('base64')}`,width:IMAGE_WIDTH,height:IMAGE_HEIGHT,pieceSize:PIECE_SIZE,pieceY,expiresAt:new Date(Date.now()+2*MS_MINUTE).toISOString()};
   }

@@ -2,12 +2,14 @@
 
 同一套响应式前台适配电脑和手机，提供验证入口、内容展示、访客留言与客服回复；管理后台维护页面、图文、常见问题和会话。
 
+服务器安装、HTTPS、后台路径和更新回退步骤见 [部署说明](./DEPLOYMENT.md)。
+
 ## 技术方案
 
 - 前台：Vue 3、TypeScript、Vite。
 - 管理后台：Vue 3、Element Plus、TypeScript。
 - 后端：NestJS、Prisma、MySQL 8.4。
-- 验证：本地拼图用于开发，支持切换 Cloudflare Turnstile。
+- 验证：自托管滑块拼图，支持切换 Cloudflare Turnstile。
 
 ## 目录
 
@@ -57,7 +59,9 @@ pnpm dev
 
 前端页面和内容接口均检查验证状态，直接请求内容接口无法跳过验证。访客会话与管理员会话分别使用 HttpOnly Cookie，管理员密码使用哈希存储。数据库账号仅具有项目库权限。
 
-本地拼图的答案保存在服务端，仅用于开发体验。正式上线应配置 `CAPTCHA_PROVIDER=turnstile`、`TURNSTILE_SITE_KEY` 和 `TURNSTILE_SECRET_KEY`，在验证码服务中登记实际域名。生产模式会拒绝启用本地演示拼图。发布环境还需要配置 HTTPS、`APP_ORIGINS` 中的实际访问域名及安全 Cookie，并完善备份与数据保留策略。
+滑块拼图每次生成随机风景与纹理，答案保存在服务端，并绑定访客会话、有效期和单次使用限制。开发模式使用 `CAPTCHA_PROVIDER=local`；生产环境可以显式配置 `CAPTCHA_PROVIDER=slider` 使用自托管轻量拼图，无需第三方密钥。拼图提供基础访问验证，不能替代专业的机器人风险识别。
+
+需要第三方验证时，配置 `CAPTCHA_PROVIDER=turnstile`、`TURNSTILE_SITE_KEY` 和 `TURNSTILE_SECRET_KEY`，并在验证码服务中登记实际域名。生产模式拒绝 `local` 开发配置。发布环境需要配置 HTTPS、`APP_ORIGINS` 中的实际访问域名及安全 Cookie，并完善备份与数据保留策略。当 API 仅监听本机且通过同机 Nginx 等代理提供访问时，可配置 `TRUST_PROXY=loopback`，仅信任回环地址代理转发的客户端地址。
 
 所有数据库配置只由后端加载，禁止放到 `VITE_*` 等会被打包到浏览器的变量中。上传图片保存在本机 `data/uploads`，迁移时应一起备份。
 

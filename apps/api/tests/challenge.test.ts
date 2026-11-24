@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import sharp from 'sharp';
 import { AppService } from '../src/app.service.js';
 import type { DatabaseService } from '../src/database.service.js';
+import { renderSliderPuzzle } from '../src/puzzle.js';
 
 test('challenge reveals images only while target remains bound to its visitor in storage',async()=>{
   let persisted:Record<string,unknown>|undefined;
@@ -22,4 +23,16 @@ test('challenge reveals images only while target remains bound to its visitor in
   assert.equal(background.height,180);
   assert.equal(piece.width,44);
   assert.equal(piece.hasAlpha,true);
+});
+
+test('fresh puzzle landscapes differ even with identical target coordinates',async()=>{
+  const first=await renderSliderPuzzle(120,70);
+  const second=await renderSliderPuzzle(120,70);
+  const [firstImage,secondImage]=await Promise.all([
+    sharp(first.background).ensureAlpha().raw().toBuffer(),
+    sharp(second.background).ensureAlpha().raw().toBuffer(),
+  ]);
+  // A pixel outside the puzzle region changes too: randomness belongs to the landscape.
+  assert.notDeepEqual(firstImage.subarray(0,320*40*4),secondImage.subarray(0,320*40*4));
+  assert.notDeepEqual(first.piece,second.piece);
 });

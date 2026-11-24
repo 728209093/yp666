@@ -1,0 +1,33 @@
+[Unit]
+Description=YP666 website API
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=60
+StartLimitBurst=10
+
+[Service]
+Type=simple
+User=yp666
+Group=yp666
+WorkingDirectory=/opt/yp666/current/apps/api
+EnvironmentFile=/opt/yp666/shared/.env.local
+Environment=NODE_ENV=production
+Environment=HOST=127.0.0.1
+Environment=PORT=3001
+Environment=TRUST_PROXY=loopback
+Environment=PATH=/opt/yp666/runtime/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/opt/yp666/runtime/bin/node /opt/yp666/current/apps/api/dist/main.js
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=30
+KillSignal=SIGTERM
+UMask=0027
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/yp666/shared/data
+SyslogIdentifier=yp666-api
+
+[Install]
+WantedBy=multi-user.target
