@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@yp666/shared": "workspace:*",
+    "dompurify": "^3.5.0",
     "lucide-vue-next": "^0.468.0",
     "vue": "^3.5.24"
   },

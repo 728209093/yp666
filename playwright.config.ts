@@ -10,7 +10,7 @@ export default defineConfig({
   workers: 1,
   reporter: [['list'], ['html', { open: 'never' }]],
   use: {
-    baseURL: 'http://127.0.0.1:5173',
+    baseURL: process.env.E2E_WEB_URL || 'http://127.0.0.1:5173',
     trace: 'off',
     screenshot: 'only-on-failure',
     launchOptions: existsSync(chromePath) ? { executablePath: chromePath } : {},

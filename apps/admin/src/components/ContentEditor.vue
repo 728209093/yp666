@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import {computed, onBeforeUnmount, onMounted, ref, watch} from 'vue';
 import {ElMessage, ElMessageBox} from 'element-plus';
-import {ArrowDown, ArrowUp, Check, ChevronRight, CircleHelp, Eye, FileText, Image, Leaf, Link, Plus, RefreshCw, Save, Send, Settings2, ShieldCheck, Trash2} from 'lucide-vue-next';
+import {ArrowDown, ArrowUp, Check, ChevronRight, CircleHelp, Eye, FileText, Image, Leaf, Link, Megaphone, Plus, RefreshCw, Save, Send, Settings2, ShieldCheck, Trash2} from 'lucide-vue-next';
 import {defaultDocument, siteDocumentSchema, type AdminContentResponse, type ContentBlock, type SiteDocument} from '@yp666/shared';
 import {api} from '../api';
 import {assetUrl, dateTime} from '../utils';
 import ImageInput from './ImageInput.vue';
+import MediaPreview from './MediaPreview.vue';
 const props = defineProps<{section: string}>();
 const emit = defineEmits<{(e: 'dirty', value: boolean): void}>();
 const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
@@ -18,12 +19,13 @@ const loaded = ref(false);
 const error = ref('');
 const busy = ref(false);
 const previewOpen = ref(false);
+const imagePreview = ref('');
 const expanded = ref<string>('');
 const dirty = computed(() => loaded.value && JSON.stringify(draft.value) !== baseline.value);
 const unpublished = computed(() => JSON.stringify(draft.value) !== JSON.stringify(published.value));
 const sectionText = computed(() => props.section === 'settings' ? {eyebrow: 'MAKE IT YOUR OWN', title: '布置你的会客厅', text: '把品牌的温度，藏进每一个细节里。'} : props.section === 'faq' ? {eyebrow: 'HELP, BEFORE THEY ASK', title: '把答案，提前准备好', text: '访客点击问题后，服务助手会自动回复对应答案。'} : {eyebrow: 'WORDS THAT CONNECT', title: '用内容，开启对话', text: '在这里编辑访客将看到的图文与链接。保存后发布，即可更新前台。'});
 watch(dirty, value => emit('dirty', value));
-function apply(data: AdminContentResponse) {draft.value = clone(data.draft); published.value = clone(data.published); publishedAt.value = data.publishedAt; baseline.value = JSON.stringify(data.draft); loaded.value = true;}
+function apply(data: AdminContentResponse) {draft.value = siteDocumentSchema.parse(clone(data.draft)); published.value = siteDocumentSchema.parse(clone(data.published)); publishedAt.value = data.publishedAt; baseline.value = JSON.stringify(draft.value); loaded.value = true;}
 async function load() {loading.value = true; error.value = ''; try {apply(await api<AdminContentResponse>('/admin/content'));} catch (e) {error.value = (e as Error).message;} finally {loading.value = false;}}
 async function refresh() {try {if (dirty.value) await ElMessageBox.confirm('重新加载会丢失尚未保存的修改。确定继续吗？', '重新加载', {type: 'warning', confirmButtonText: '重新加载', cancelButtonText: '继续编辑'}); await load();} catch {}}
 function validate() {
@@ -204,8 +206,27 @@ onBeforeUnmount(() => {window.removeEventListener('beforeunload', beforeUnload);
 <el-form-item label="品牌头像">
 <ImageInput v-model="draft.settings.avatarUrl" label="头像图片 URL" round/>
 </el-form-item>
-<el-form-item label="背景图片（可选）">
-<ImageInput v-model="draft.settings.backgroundUrl" label="留空则使用默认背景"/>
+<el-form-item label="客服头像形状">
+<div class="avatar-shape-options" role="group" aria-label="客服头像形状">
+<button v-for="shape in (['circle', 'rounded', 'square'] as const)" :key="shape" type="button" :class="{active: draft.settings.avatarShape === shape}" :aria-pressed="draft.settings.avatarShape === shape" @click="draft.settings.avatarShape = shape"><img :src="assetUrl(draft.settings.avatarUrl || '/assets/avatar.svg')" alt="" :class="`avatar-${shape}`"/><span>{{shape === 'circle' ? '圆形' : shape === 'rounded' ? '圆角' : '方角'}}</span></button>
+</div>
+</el-form-item>
+<el-form-item label="安全验证背景图片">
+<ImageInput v-model="draft.settings.verificationBackgroundUrl" label="验证页面背景图片，留空使用默认背景"/>
+</el-form-item>
+<el-form-item label="聊天窗口背景图片">
+<ImageInput v-model="draft.settings.chatBackgroundUrl" label="聊天窗口背景图片，留空使用默认背景"/>
+</el-form-item>
+<el-form-item label="桌面介绍区背景图片（可选）">
+<ImageInput v-model="draft.settings.backgroundUrl" label="介绍区背景图片，可留空"/>
+</el-form-item>
+<el-form-item label="浏览器标签页标题">
+<el-input v-model="draft.settings.pageTitle" maxlength="80" show-word-limit placeholder="例如：在线客服"/>
+<p class="field-hint">进入聊天窗口后的网页标题，发布后会自动同步。</p>
+</el-form-item>
+<el-form-item label="加载提示文字">
+<el-input v-model="draft.settings.loadingText" maxlength="80" show-word-limit placeholder="正在加载，请稍候…"/>
+<div class="loading-text-preview"><span></span>{{draft.settings.loadingText || '正在加载，请稍候…'}}</div>
 </el-form-item>
 </el-form>
 </article>
@@ -221,6 +242,15 @@ onBeforeUnmount(() => {window.removeEventListener('beforeunload', beforeUnload);
 <el-form-item label="顶部公告">
 <el-input v-model="draft.settings.announcement" type="textarea" :rows="2" maxlength="240" show-word-limit placeholder="留空则不展示公告"/>
 </el-form-item>
+<el-form-item label="公告滚动周期（秒）">
+<el-input-number v-model="draft.settings.announcementSpeed" :min="10" :max="120" :step="2"/>
+<span class="field-hint inline-hint">数值越大，滚动越慢</span>
+</el-form-item>
+<div v-if="draft.settings.announcement" class="announcement-preview"><Megaphone :size="16"/><div><span :style="{animationDuration: `${draft.settings.announcementSpeed}s`}">{{draft.settings.announcement}}</span></div></div>
+<div class="setting-switch-row">
+<div><strong>客服回复提示音</strong><p>访客允许声音后，收到客服新回复时播放短提示音。</p></div>
+<el-switch v-model="draft.settings.notificationSound" aria-label="开启客服回复提示音"/>
+</div>
 <el-form-item label="介绍区标题">
 <el-input v-model="draft.settings.introTitle" maxlength="80"/>
 </el-form-item>
@@ -345,25 +375,17 @@ onBeforeUnmount(() => {window.removeEventListener('beforeunload', beforeUnload);
     </template>
     <el-dialog v-model="previewOpen" title="草稿预览" width="440px" class="draft-preview-dialog" align-center>
 <p class="preview-hint">此预览展示草稿内容，尚未对访客发布。</p>
-<div class="draft-phone" :style="{'--preview-color': draft.settings.primaryColor}">
-<div class="draft-phone-header">
-<img v-if="draft.settings.avatarUrl" :src="assetUrl(draft.settings.avatarUrl)" alt="品牌头像"/>
-<div>
-<strong>{{draft.settings.brandName}}</strong>
-<span>在线会客厅</span>
-</div>
-<Leaf :size="19"/>
-</div>
-<div class="draft-notice" v-if="draft.settings.announcement">{{draft.settings.announcement}}</div>
+<div class="draft-phone" :style="{'--preview-color': draft.settings.primaryColor, backgroundImage: draft.settings.chatBackgroundUrl ? `url(${assetUrl(draft.settings.chatBackgroundUrl)})` : undefined}">
+<div class="draft-notice announcement-preview" v-if="draft.settings.announcement"><Megaphone :size="14"/><div><span :style="{animationDuration: `${draft.settings.announcementSpeed}s`}">{{draft.settings.announcement}}</span></div></div>
 <div class="draft-phone-body">
 <div class="draft-intro">
 <span>HELLO, NICE TO MEET YOU</span>
 <h3>{{draft.settings.introTitle}}</h3>
 <p>{{draft.settings.introText}}</p>
 </div>
-<div class="preview-bubble">{{draft.settings.welcomeMessage}}</div>
+<div class="preview-message-row"><img :src="assetUrl(draft.settings.avatarUrl || '/assets/avatar.svg')" alt="客服头像" :class="`avatar-${draft.settings.avatarShape}`"/><div class="preview-bubble">{{draft.settings.welcomeMessage}}</div></div>
 <article v-for="block in draft.blocks.filter(b => b.enabled)" :key="block.id" class="preview-block">
-<img v-if="block.type === 'image' && block.imageUrl" :src="assetUrl(block.imageUrl)" :alt="block.title"/>
+<button v-if="block.type === 'image' && block.imageUrl" type="button" class="preview-block-image" aria-label="查看草稿图片大图" @click="imagePreview = assetUrl(block.imageUrl)"><img :src="assetUrl(block.imageUrl)" :alt="block.title"/></button>
 <h4 v-if="block.title">{{block.title}}</h4>
 <p>{{block.content}}</p>
 <span v-if="block.type === 'link'" class="preview-link">{{block.buttonText || '了解更多'}}<ChevronRight :size="13"/>
@@ -376,5 +398,6 @@ onBeforeUnmount(() => {window.removeEventListener('beforeunload', beforeUnload);
 <div class="draft-composer">{{draft.settings.contactHint}}</div>
 </div>
 </el-dialog>
+<MediaPreview :src="imagePreview" @close="imagePreview = ''"/>
   </section>
 </template>

@@ -10,6 +10,7 @@
 
 # Private server connection notes
 /DATABASE.md
+.local/
 
 # Dependencies and build output
 node_modules/
@@ -21,6 +22,7 @@ dist/
 # Runtime uploads, database dumps, and logs
 data/
 *.sql
+!/deploy/migrations/*.sql
 *.sql.gz
 *.sqlite
 *.sqlite3

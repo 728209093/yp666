@@ -1,8 +1,7 @@
 import { Injectable, OnApplicationBootstrap } from '@nestjs/common';
 import bcrypt from 'bcryptjs';
-import sharp from 'sharp';
 import { randomInt, randomUUID, createHash } from 'node:crypto';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, writeFile, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
   defaultDocument, siteDocumentSchema,
@@ -14,6 +13,8 @@ import { DatabaseService } from './database.service.js';
 import { allowedOrigins, captchaProvider, uploadDirectory } from './config.js';
 import { challengeIsValid, hashToken, newToken, parse, shanghaiDate } from './security.js';
 import { renderSliderPuzzle } from './puzzle.js';
+import { normalizeMessage, richTextPlain, type MessageInput } from './chat-content.js';
+import { decodeUpload } from './media.js';
 
 const MS_MINUTE=60_000;
 const ADMIN_SESSION_HOURS=12;
@@ -21,8 +22,11 @@ const IMAGE_WIDTH=320;
 const IMAGE_HEIGHT=180;
 const PIECE_SIZE=44;
 const turnstileUrl='https://challenges.cloudflare.com/turnstile/v0/siteverify';
-const messageShape=(row: {id:string;role:string;content:string;createdAt:Date}): ChatMessage => ({id:row.id,role:row.role as ChatMessage['role'],content:row.content,createdAt:row.createdAt.toISOString()});
-const summaryShape=(row: {id:string;visitorLabel:string;unreadCount:number;createdAt:Date;updatedAt:Date;messages:{content:string}[]}): ConversationSummary => ({id:row.id,visitorLabel:row.visitorLabel,unreadCount:row.unreadCount,createdAt:row.createdAt.toISOString(),updatedAt:row.updatedAt.toISOString(),lastMessage:row.messages[0]?.content||'暂无消息'});
+type StoredMessage={id:string;role:string;content:string;type?:string;mediaUrl?:string|null;fileName?:string|null;createdAt:Date};
+const messageShape=(row:StoredMessage): ChatMessage => ({id:row.id,role:row.role as ChatMessage['role'],content:row.content,type:(row.type||'text') as ChatMessage['type'],...(row.mediaUrl?{mediaUrl:row.mediaUrl}:{}),...(row.fileName?{fileName:row.fileName}:{}),createdAt:row.createdAt.toISOString()});
+const messagePreview=(message:{type?:string;content:string}|undefined)=>!message?'暂无消息':message.type==='image'?'[图片]':message.type==='video'?'[视频]':message.type==='richtext'?richTextPlain(message.content):message.content;
+const summaryShape=(row: {id:string;visitorLabel:string;unreadCount:number;createdAt:Date;updatedAt:Date;messages:{content:string;type?:string}[]}): ConversationSummary => ({id:row.id,visitorLabel:row.visitorLabel,unreadCount:row.unreadCount,createdAt:row.createdAt.toISOString(),updatedAt:row.updatedAt.toISOString(),lastMessage:messagePreview(row.messages[0])});
+type UploadOwner={visitorId:string;adminId?:never}|{adminId:string;visitorId?:never};
 
 function clampSite(value: unknown): SiteDocument { return parse(siteDocumentSchema,value); }
 
@@ -74,7 +78,7 @@ export class AppService implements OnApplicationBootstrap {
     const enabled=document.settings.verificationEnabled;
     const verified=Boolean(visitor.verifiedUntil&&visitor.verifiedUntil.getTime()>Date.now());
     return {
-      site:{brandName:document.settings.brandName,title:document.settings.title,subtitle:document.settings.subtitle,avatarUrl:document.settings.avatarUrl,primaryColor:document.settings.primaryColor,verificationEnabled:enabled},
+      site:{brandName:document.settings.brandName,title:document.settings.title,subtitle:document.settings.subtitle,avatarUrl:document.settings.avatarUrl,primaryColor:document.settings.primaryColor,verificationEnabled:enabled,verificationBackgroundUrl:document.settings.verificationBackgroundUrl,pageTitle:document.settings.pageTitle,loadingText:document.settings.loadingText,avatarShape:document.settings.avatarShape},
       verificationRequired:enabled&&!verified,verified:!enabled||verified,captchaProvider,
       ...(captchaProvider==='turnstile'?{turnstileSiteKey:process.env.TURNSTILE_SITE_KEY}:{}),
     };
@@ -139,17 +143,26 @@ export class AppService implements OnApplicationBootstrap {
     return conversation?.messages.reverse().map(messageShape)||[];
   }
 
-  async sendVisitor(visitorId:string,content:string) {
-    const normalized=content.trim();
-    if(!normalized||normalized.length>4000)throw new BadRequestException('留言长度需要为 1 至 4000 个字符');
+  private async messageData(input:MessageInput,owner:UploadOwner) {
+    const normalized=normalizeMessage(input,!!owner.adminId);
+    if(normalized.mediaUrl) {
+      const upload=await this.db.mediaUpload.findFirst({where:{url:normalized.mediaUrl,...owner}});
+      if(!upload||upload.type!==normalized.type)throw new ForbiddenException('无法发送此文件，请重新上传');
+      return {...normalized,fileName:upload.fileName};
+    }
+    return normalized;
+  }
+
+  async sendVisitor(visitorId:string,input:MessageInput) {
+    const normalized=await this.messageData(input,{visitorId});
     const {published}=await this.site();
-    const faq=published.faqs.find(item=>item.enabled&&item.question.localeCompare(normalized,'zh',{sensitivity:'accent'})===0);
+    const faq=normalized.type==='text'?published.faqs.find(item=>item.enabled&&item.question.localeCompare(normalized.content,'zh',{sensitivity:'accent'})===0):undefined;
     const initial=published.settings.welcomeMessage.trim()||'你好，欢迎留言。';
     const conversation=await this.db.conversation.upsert({where:{visitorId},update:{},create:{visitorId,visitorLabel:'访客-'+randomInt(1000,9999),messages:{create:{role:'assistant',content:initial}}}});
     const now=new Date();
     await this.db.$transaction(async tx=>{
       await tx.conversation.update({where:{id:conversation.id},data:{...(faq?{}:{unreadCount:{increment:1}}),updatedAt:now}});
-      await tx.message.create({data:{conversationId:conversation.id,role:'visitor',content:normalized,createdAt:now}});
+      await tx.message.create({data:{conversationId:conversation.id,role:'visitor',...normalized,createdAt:now}});
       if(faq)await tx.message.create({data:{conversationId:conversation.id,role:'assistant',content:faq.answer,createdAt:new Date(now.getTime()+1)}});
     });
     return this.messages(visitorId);
@@ -189,7 +202,7 @@ export class AppService implements OnApplicationBootstrap {
   }
 
   async listConversations():Promise<ConversationSummary[]> {
-    const rows=await this.db.conversation.findMany({orderBy:[{unreadCount:'desc'},{updatedAt:'desc'}],take:200,include:{messages:{orderBy:{createdAt:'desc'},take:1,select:{content:true}}}});
+    const rows=await this.db.conversation.findMany({orderBy:[{unreadCount:'desc'},{updatedAt:'desc'}],take:200,include:{messages:{orderBy:{createdAt:'desc'},take:1,select:{content:true,type:true}}}});
     return rows.map(summaryShape);
   }
 
@@ -198,33 +211,33 @@ export class AppService implements OnApplicationBootstrap {
     if(!conversation)throw new NotFoundException('会话不存在');
     conversation.messages.reverse();
     await this.db.conversation.updateMany({where:{id,unreadCount:conversation.unreadCount},data:{unreadCount:0,updatedAt:conversation.updatedAt}});
-    return {conversation:summaryShape({...conversation,unreadCount:0,messages:conversation.messages.slice(-1).map(message=>({content:message.content}))}),messages:conversation.messages.map(messageShape)};
+    return {conversation:summaryShape({...conversation,unreadCount:0,messages:conversation.messages.slice(-1)}),messages:conversation.messages.map(messageShape)};
   }
 
-  async reply(id:string,content:string):Promise<ChatMessage[]> {
-    const normalized=content.trim();
-    if(!normalized||normalized.length>4000)throw new BadRequestException('回复长度需要为 1 至 4000 个字符');
+  async reply(id:string,input:MessageInput,adminId:string):Promise<ChatMessage[]> {
+    const normalized=await this.messageData(input,{adminId});
     const conversation=await this.db.conversation.findUnique({where:{id},select:{id:true}});
     if(!conversation)throw new NotFoundException('会话不存在');
     const now=new Date();
     await this.db.$transaction([
-      this.db.message.create({data:{conversationId:id,role:'admin',content:normalized,createdAt:now}}),
+      this.db.message.create({data:{conversationId:id,role:'admin',...normalized,createdAt:now}}),
       this.db.conversation.update({where:{id},data:{unreadCount:0,updatedAt:now}}),
     ]);
     const rows=await this.db.message.findMany({where:{conversationId:id},orderBy:[{createdAt:'desc'},{id:'desc'}],take:500});
     return rows.reverse().map(messageShape);
   }
 
-  async upload(buffer:Buffer,_originalName:string) {
-    if(!buffer?.length||buffer.length>5*1024*1024)throw new BadRequestException('图片大小上限为 5 MB');
-    let image:sharp.Sharp;
-    try {image=sharp(buffer,{limitInputPixels:30_000_000,failOn:'error'});const metadata=await image.metadata();if(!metadata.width||!metadata.height||!['jpeg','png','webp','avif','tiff'].includes(metadata.format||''))throw new Error('unsupported');}
-    catch {throw new BadRequestException('请选择有效的 JPG、PNG、WebP 或 AVIF 图片');}
+  async upload(buffer:Buffer,originalName:string,owner:UploadOwner) {
+    const media=await decodeUpload(buffer,originalName);
     await mkdir(uploadDirectory,{recursive:true});
-    const filename=`${randomUUID()}.webp`;
-    try {await image.rotate().resize({width:2400,height:2400,fit:'inside',withoutEnlargement:true}).webp({quality:85}).toFile(join(uploadDirectory,filename));}
-    catch {throw new BadRequestException('图片解码失败，请换一张图片重试');}
-    return {url:`/uploads/${filename}`};
+    const filename=`${randomUUID()}.${media.extension}`;
+    const url=`/uploads/${filename}`;
+    const fileName=originalName.replace(/[\\/\u0000-\u001f\u007f]/g,'_').slice(0,160)||filename;
+    const path=join(uploadDirectory,filename);
+    await writeFile(path,media.data,{flag:'wx',mode:0o640});
+    try {await this.db.mediaUpload.create({data:{url,type:media.type,fileName,...owner}});}
+    catch(error) {await unlink(path).catch(()=>{});throw error;}
+    return {url,type:media.type,fileName};
   }
 
   async adminFromToken(token:string|undefined) {

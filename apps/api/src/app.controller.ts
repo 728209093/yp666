@@ -6,9 +6,10 @@ import { AppService } from './app.service.js';
 import { DatabaseService } from './database.service.js';
 import { adminCookie, cookieOptions, parse, visitorCookie } from './security.js';
 import { captchaProvider } from './config.js';
+import { messageSchema } from './chat-content.js';
+import { maximumUploadBytes } from './media.js';
 
 const loginSchema=z.object({username:z.string().trim().min(1).max(64),password:z.string().min(1).max(128)});
-const messageSchema=z.object({content:z.string().trim().min(1,'请输入消息内容').max(4000,'消息最多 4000 个字符')});
 const passwordSchema=z.object({currentPassword:z.string().min(1).max(128),newPassword:z.string().min(12,'新密码至少 12 位').max(128)});
 const verifySchema=z.object({challengeId:z.string().max(128).optional(),position:z.number().finite().min(0).max(320).optional(),elapsedMs:z.number().finite().min(0).max(600000).optional(),token:z.string().min(1).max(4096).optional()});
 
@@ -20,6 +21,19 @@ export class AdminGuard implements CanActivate {
     const session=await this.app.adminFromToken(req.cookies?.[adminCookie]);
     if(!session)throw new UnauthorizedException('请先登录管理后台');
     Object.assign(req,{adminSession:session});
+    return true;
+  }
+}
+
+@Injectable()
+export class VerifiedUploadGuard implements CanActivate {
+  constructor(private readonly app:AppService) {}
+  async canActivate(context:ExecutionContext) {
+    const req=context.switchToHttp().getRequest<Request>();
+    const record=await this.app.getVisitor(req.cookies?.[visitorCookie],false);
+    if(!record)throw new ForbiddenException('请先完成安全验证');
+    const {published}=await this.app.site();
+    await this.app.assertVerified(record.id,published);
     return true;
   }
 }
@@ -88,11 +102,23 @@ export class PublicController {
   @Post('visitor/messages')
   @HttpCode(200)
   async send(@Body()body:unknown,@Req()request:Request,@Res({passthrough:true})response:Response) {
-    const {content}=parse(messageSchema,body);
+    const input=parse(messageSchema,body);
     const record=await visitor(this.app,request,response);
     const {published}=await this.app.site();
     await this.app.assertVerified(record.id,published);
-    return this.app.sendVisitor(record.id,content);
+    return this.app.sendVisitor(record.id,input);
+  }
+
+  @Post('visitor/uploads')
+  @HttpCode(200)
+  @UseGuards(VerifiedUploadGuard)
+  @UseInterceptors(FileInterceptor('file',{limits:{fileSize:maximumUploadBytes,files:1}}))
+  async upload(@UploadedFile()file:Express.Multer.File|undefined,@Req()request:Request,@Res({passthrough:true})response:Response) {
+    const record=await visitor(this.app,request,response);
+    const {published}=await this.app.site();
+    await this.app.assertVerified(record.id,published);
+    if(!file)throw new BadRequestException('请选择图片或视频文件');
+    return this.app.upload(file.buffer,file.originalname,{visitorId:record.id});
   }
 }
 
@@ -156,11 +182,11 @@ export class AdminController {
   @Get('conversations/:id') conversation(@Param('id')id:string) {return this.app.adminConversation(id);}
   @Post('conversations/:id/messages')
   @HttpCode(200)
-  reply(@Param('id')id:string,@Body()body:unknown) {const input=parse(messageSchema,body);return this.app.reply(id,input.content);}
+  reply(@Param('id')id:string,@Body()body:unknown,@Req()request:Request) {const input=parse(messageSchema,body);return this.app.reply(id,input,(request as Request & {adminSession:{admin:{id:string}}}).adminSession.admin.id);}
   @Post('uploads')
-  @UseInterceptors(FileInterceptor('file',{limits:{fileSize:5*1024*1024,files:1}}))
-  upload(@UploadedFile()file:Express.Multer.File|undefined) {
-    if(!file)throw new BadRequestException('请选择图片文件');
-    return this.app.upload(file.buffer,file.originalname);
+  @UseInterceptors(FileInterceptor('file',{limits:{fileSize:maximumUploadBytes,files:1}}))
+  upload(@UploadedFile()file:Express.Multer.File|undefined,@Req()request:Request) {
+    if(!file)throw new BadRequestException('请选择图片或视频文件');
+    return this.app.upload(file.buffer,file.originalname,{adminId:(request as Request & {adminSession:{admin:{id:string}}}).adminSession.admin.id});
   }
 }

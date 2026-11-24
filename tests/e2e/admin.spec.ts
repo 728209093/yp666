@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { apiUrl, cleanupVisitor, database, loginAdmin, solve } from './helpers';
+import { apiUrl, adminUrl, cleanupVisitor, database, loginAdmin, solve } from './helpers';
 import type mysql from 'mysql2/promise';
 
 test('后台登录、草稿发布、图片上传及人工回复', async ({ page, context, playwright }, testInfo) => {
@@ -11,7 +11,7 @@ test('后台登录、草稿发布、图片上传及人工回复', async ({ page,
   const adminPage = await context.newPage();
   let uploadUrl = '';
   try {
-    await adminPage.goto('http://127.0.0.1:5174');
+    await adminPage.goto(adminUrl);
     await adminPage.getByLabel('管理员账号').fill(process.env.ADMIN_USERNAME!);
     await adminPage.getByLabel('登录密码', { exact: true }).fill(process.env.ADMIN_PASSWORD!);
     await adminPage.getByRole('button', { name: '进入工作台' }).click();
@@ -51,7 +51,7 @@ test('后台登录、草稿发布、图片上传及人工回复', async ({ page,
     expect(upload.ok(), await upload.text()).toBeTruthy();
     uploadUrl = (await upload.json()).url;
     expect(uploadUrl).toMatch(/^\/uploads\/[\w-]+\.webp$/);
-    expect((await admin.get(`http://127.0.0.1:3001${uploadUrl}`)).ok()).toBeTruthy();
+    expect((await admin.get(`${new URL(apiUrl).origin}${uploadUrl}`)).ok()).toBeTruthy();
     const invalid = await admin.post(`${apiUrl}/admin/uploads`, {multipart:{file:{name:'bad.svg',mimeType:'image/svg+xml',buffer:Buffer.from('<svg onload="alert(1)"></svg>')}}});
     expect(invalid.status()).toBe(400);
     await adminPage.getByRole('button',{name:'访客咨询',exact:true}).click();

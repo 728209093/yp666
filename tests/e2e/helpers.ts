@@ -5,8 +5,9 @@ import { createHash } from 'node:crypto';
 import mysql from 'mysql2/promise';
 import { expect, type Page, type APIRequestContext } from '@playwright/test';
 
-config({ path: '.env.local', quiet: true });
-export const apiUrl = 'http://127.0.0.1:3001/api';
+config({ path: process.env.E2E_ENV_FILE || '.env.local', quiet: true });
+export const apiUrl = process.env.E2E_API_URL || 'http://127.0.0.1:3001/api';
+export const adminUrl = process.env.E2E_ADMIN_URL || 'http://127.0.0.1:5174';
 export function database() {
   return mysql.createConnection({
     host: process.env.MYSQL_HOST,

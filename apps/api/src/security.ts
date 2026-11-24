@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import type { CookieOptions, NextFunction, Request, Response } from 'express';
 import { BadRequestException, HttpException } from '@nestjs/common';
-import { ZodError, type ZodType } from 'zod';
+import { ZodError, type ZodTypeAny, type output } from 'zod';
 import { allowedOrigins, cookieSecure } from './config.js';
 
 export const visitorCookie = 'yp666_visitor';
@@ -9,7 +9,7 @@ export const adminCookie = 'yp666_admin';
 export function hashToken(token: string) { return createHash('sha256').update(token).digest('hex'); }
 export function newToken() { return randomBytes(32).toString('base64url'); }
 export function cookieOptions(maxAge: number): CookieOptions { return {httpOnly: true, secure: cookieSecure, sameSite: 'lax', path: '/api', maxAge}; }
-export function parse<T>(schema: ZodType<T>, value: unknown): T {
+export function parse<T extends ZodTypeAny>(schema:T,value:unknown):output<T> {
   try { return schema.parse(value); }
   catch (error) {
     if (error instanceof ZodError) throw new BadRequestException(error.issues[0]?.message || '请求参数不正确');
@@ -43,8 +43,8 @@ export function securityMiddleware() {
     }
     const route = request.path;
     const ip = request.ip || request.socket.remoteAddress || 'unknown';
-    const cap = route.includes('/auth/login') ? 12 : route.includes('/verification/') ? 40 : request.method==='POST' && route.includes('/messages') ? 40 : 600;
-    const category=route.includes('/auth/login')?'login':route.includes('/verification/')?'verification':request.method==='POST'&&route.includes('/messages')?'send':'all';
+    const cap = route.includes('/auth/login') ? 12 : route.includes('/verification/') ? 40 : route.includes('/uploads') ? 20 : request.method==='POST' && route.includes('/messages') ? 40 : 600;
+    const category=route.includes('/auth/login')?'login':route.includes('/verification/')?'verification':route.includes('/uploads')?'upload':request.method==='POST'&&route.includes('/messages')?'send':'all';
     if (!limits.take(`${ip}:${category}`,cap,60000)) {
       response.setHeader('Retry-After','60'); response.status(429).json({message:'操作太频繁，请稍后再试'}); return;
     }

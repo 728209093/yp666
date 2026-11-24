@@ -1,10 +1,10 @@
 import { test, expect } from '@playwright/test';
-import './helpers';
+import { adminUrl } from './helpers';
 
 test('后台响应式布局与草稿保存发布操作', async ({page}, info) => {
   const errors:string[]=[];
   page.on('pageerror',error=>errors.push(error.message));
-  await page.goto('http://127.0.0.1:5174');
+  await page.goto(adminUrl);
   await page.getByLabel('管理员账号').fill(process.env.ADMIN_USERNAME!);
   await page.getByLabel('登录密码',{exact:true}).fill(process.env.ADMIN_PASSWORD!);
   await page.getByRole('button',{name:'进入工作台'}).click();

@@ -22,6 +22,7 @@ model Admin {
   passwordHash String         @db.VarChar(255)
   createdAt    DateTime       @default(now()) @db.DateTime(3)
   sessions     AdminSession[]
+  mediaUploads MediaUpload[]
 }
 
 model AdminSession {
@@ -43,6 +44,7 @@ model Visitor {
   visits                Visit[]
   challenges            Challenge[]
   conversation          Conversation?
+  mediaUploads          MediaUpload[]
 }
 
 model Visit {
@@ -87,6 +89,23 @@ model Message {
   conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   role           String       @db.VarChar(16)
   content        String       @db.Text
+  type           String       @default("text") @db.VarChar(16)
+  mediaUrl       String?      @db.VarChar(255)
+  fileName       String?      @db.VarChar(160)
   createdAt      DateTime     @default(now()) @db.DateTime(3)
   @@index([conversationId, createdAt])
+}
+
+model MediaUpload {
+  id        String   @id @default(cuid()) @db.VarChar(32)
+  url       String   @unique @db.VarChar(255)
+  type      String   @db.VarChar(16)
+  fileName  String   @db.VarChar(160)
+  visitorId String?  @db.VarChar(32)
+  visitor   Visitor? @relation(fields: [visitorId], references: [id], onDelete: Cascade)
+  adminId   String?  @db.VarChar(32)
+  admin     Admin?   @relation(fields: [adminId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now()) @db.DateTime(3)
+  @@index([visitorId, createdAt])
+  @@index([adminId, createdAt])
 }

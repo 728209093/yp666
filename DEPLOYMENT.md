@@ -2,6 +2,8 @@
 
 使用 Node.js 24、pnpm 11、MySQL 8.4、Nginx 和 systemd。以下路径为部署约定；`project.example.com` 必须替换为解析到服务器的实际域名。前台地址为 `/`，后台为 `/admin/`，API 仅监听本机 `127.0.0.1:3001`。
 
+视频上传依赖 `ffprobe` 检查实际媒体流。Debian 可执行 `apt-get install --no-install-recommends ffmpeg` 安装，或在环境配置中指定 `FFPROBE_PATH`。
+
 ## 目录与账号
 
 ```text
@@ -68,6 +70,10 @@ pnpm --filter @yp666/admin exec vite build --base=/admin/
 ```
 
 先验证配置和数据库可连接。已有项目数据库不需要再次初始化，也不要在正式站点上运行会修改内容的端到端测试。新建空数据库时，可按 [数据库说明](./DATABASE.example.md) 初始化。
+
+升级到支持媒体消息的版本前，先备份项目数据库和 shared/data，再执行 [媒体消息迁移](./deploy/migrations/20261125-chat-media.sql)。该迁移仅新增消息字段和上传记录表，保留原有账号、设置和聊天数据；不要对已有库运行重置命令。新 release 完成构建和迁移后再切换 current。
+
+Nginx 模板已将请求上限设置为 27 MB，用于接收最多 25 MB 的视频及 multipart 元数据。应用分别限制图片为 5 MB、视频为 25 MB，并验证实际文件内容。
 
 运行时只需读取 release 下的代码和依赖；不要给服务账号代码写权限。Nginx 的 `www-data` 用户需要遍历 release 目录并读取两个 `dist` 目录，shared 配置不必对其开放。
 

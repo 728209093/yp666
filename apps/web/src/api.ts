@@ -11,7 +11,7 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
     response = await fetch(`/api${path}`, {
       ...init,
       credentials: 'include',
-      headers: { ...(init.body ? { 'Content-Type': 'application/json' } : {}), ...init.headers },
+      headers: { ...(init.body && !(init.body instanceof FormData) ? { 'Content-Type': 'application/json' } : {}), ...init.headers },
     });
   } catch {
     throw new ApiError(0, '暂时无法连接，请检查网络后重试。');
