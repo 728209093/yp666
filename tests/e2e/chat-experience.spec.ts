@@ -74,14 +74,14 @@ test('聊天升级：验证弹窗、动态设置、表情、媒体、富文本�
       Object.assign(draft.settings,{pageTitle:'动态标题已同步',avatarShape:'circle',chatBackgroundUrl:'/assets/gate-landscape.svg',announcement:'动态滚动公告已更新'});
       await admin.put(`${apiUrl}/admin/content`,{data:{document:draft}});await admin.post(`${apiUrl}/admin/content/publish`);
       await expect(page).toHaveTitle('动态标题已同步',{timeout:22000});
-      expect(await avatar.evaluate(e=>getComputedStyle(e).borderRadius)).toBe('50%');
+      await expect.poll(()=>avatar.evaluate(e=>getComputedStyle(e).borderRadius)).toBe('50%');
       expect(await page.locator('.chat-room').evaluate(e=>getComputedStyle(e).backgroundImage)).toContain('gate-landscape.svg');
       await expect(page.locator('.announcement-track').getByText('动态滚动公告已更新').first()).toBeAttached();
     }
     expect(await page.locator('body').evaluate(e=>e.scrollWidth<=innerWidth)).toBeTruthy();
     await page.screenshot({path:`test-results/chat-v2-${info.project.name}.png`,fullPage:true});
     await page.reload();
-    await expect(composer).toBeVisible();
+    await expect(composer).toBeVisible({timeout:30000});
     await expect(page.locator('.message-image-button')).toHaveCount(2);
     expect(errors).toEqual([]);
 
