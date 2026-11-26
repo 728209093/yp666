@@ -1,13 +1,15 @@
 <script setup lang="ts">
 import {computed, nextTick, onBeforeUnmount, onMounted, ref} from 'vue';
 import {ElMessage} from 'element-plus';
-import {ArrowLeft, ImagePlus, LoaderCircle, MessageCircle, RefreshCw, Search, Send, ShieldCheck, Video, Volume2, VolumeX} from 'lucide-vue-next';
+import {ArrowLeft, ImagePlus, MessageCircle, RefreshCw, Search, Send, ShieldCheck, Video, Volume2, VolumeX} from 'lucide-vue-next';
 import type {ChatMessage, ConversationDetail, ConversationSummary} from '@yp666/shared';
-import {api} from '../api';
+import {api, upload as uploadFile, type UploadProgress as UploadState} from '../api';
 import {dateTime} from '../utils';
 import {richTextPlain, safeRichText} from '../richtext';
 import MediaPreview from './MediaPreview.vue';
 import RichTextEditor from './RichTextEditor.vue';
+import UploadProgress from './UploadProgress.vue';
+import VideoPlayer from './VideoPlayer.vue';
 
 const conversations=ref<ConversationSummary[]>([]);
 const selected=ref<ConversationDetail>();
@@ -19,6 +21,7 @@ const error=ref('');
 const reply=ref('');
 const sending=ref(false);
 const uploading=ref(false);
+const uploadProgress=ref<UploadState>({percent:null,phase:'uploading'});
 const messageList=ref<HTMLElement>();
 const mediaInput=ref<HTMLInputElement>();
 const mediaKind=ref<'image'|'video'>('image');
@@ -35,6 +38,7 @@ let inFlight=false;
 let initialized=false;
 let disposed=false;
 let context:AudioContext|undefined;
+let uploadController:AbortController|undefined;
 
 function tone(){
   if(!sound.value)return;
@@ -111,14 +115,20 @@ async function upload(event:Event){
   const kind=mediaKind.value;const max=(kind==='image'?5:25)*1024*1024;
   if(file.size>max){ElMessage.warning(kind==='image'?'图片最大 5 MB':'视频最大 25 MB');input.value='';return;}
   if(kind==='image'&&!['image/jpeg','image/png','image/webp','image/avif'].includes(file.type)||kind==='video'&&!['video/mp4','video/webm'].includes(file.type)){ElMessage.warning('请选择支持的图片或 MP4 / WebM 视频');input.value='';return;}
-  ++loadId;uploading.value=true;
-  try{const data=new FormData();data.append('file',file);const result=await api<{url:string;type:'image'|'video';fileName:string}>('/admin/uploads',{method:'POST',body:data});await send({type:result.type,mediaUrl:result.url,fileName:result.fileName});}
-  catch(e){ElMessage.error((e as Error).message);}finally{uploading.value=false;input.value='';}
+  ++loadId;uploading.value=true;uploadProgress.value={percent:null,phase:'uploading'};uploadController=new AbortController();
+  try{
+    const data=new FormData();data.append('file',file);
+    const result=await uploadFile<{url:string;type:'image'|'video';fileName:string}>('/admin/uploads',data,{signal:uploadController.signal,onProgress:value=>uploadProgress.value=value});
+    if(disposed)return;
+    uploadProgress.value={percent:100,phase:'processing'};
+    await send({type:result.type,mediaUrl:result.url,fileName:result.fileName});
+  }
+  catch(e){if(!disposed&&(e as Error).name!=='AbortError')ElMessage.error((e as Error).message);}finally{uploading.value=false;uploadController=undefined;input.value='';}
 }
 function back(){if(sending.value||uploading.value)return;++loadId;selected.value=undefined;reply.value='';detailLoading.value=false;}
 function closePreview(event:KeyboardEvent){if(event.key==='Escape')preview.value='';}
 onMounted(async()=>{await load();if(disposed)return;timer=setInterval(()=>void poll(),4000);document.addEventListener('keydown',closePreview);document.addEventListener('pointerdown',unlockSound);});
-onBeforeUnmount(()=>{disposed=true;++loadId;if(timer)clearInterval(timer);if(noticeTimer)clearTimeout(noticeTimer);document.removeEventListener('keydown',closePreview);document.removeEventListener('pointerdown',unlockSound);void context?.close();});
+onBeforeUnmount(()=>{disposed=true;++loadId;uploadController?.abort();if(timer)clearInterval(timer);if(noticeTimer)clearTimeout(noticeTimer);document.removeEventListener('keydown',closePreview);document.removeEventListener('pointerdown',unlockSound);void context?.close();});
 </script>
 
 <template>
@@ -136,8 +146,14 @@ onBeforeUnmount(()=>{disposed=true;++loadId;if(timer)clearInterval(timer);if(not
       <section class="conversation-detail" v-loading="detailLoading">
         <template v-if="selected">
           <header class="conversation-detail-header"><button class="icon-btn conversation-back" aria-label="返回会话列表" @click="back"><ArrowLeft :size="18"/></button><span class="visitor-avatar">{{selected.conversation.visitorLabel.slice(-2)}}</span><div><h3>{{selected.conversation.visitorLabel}}</h3><p>首次留言 {{dateTime(selected.conversation.createdAt)}}</p></div><span class="private-label"><ShieldCheck :size="13"/>私密会话</span></header>
-          <div ref="messageList" class="admin-messages"><div class="message-start">会话开始于 {{dateTime(selected.conversation.createdAt)}}</div><div v-for="message in selected.messages" :key="message.id" class="admin-message" :class="{outgoing:message.role==='admin',automatic:message.role==='assistant'}"><div class="message-role">{{message.role==='admin'?'管理员':message.role==='assistant'?'服务助手 · 自动回复':selected.conversation.visitorLabel}}<time>{{dateTime(message.createdAt)}}</time></div><div class="admin-message-bubble" :class="{'media-message-bubble':message.type==='image'||message.type==='video'}"><button v-if="message.type==='image' && message.mediaUrl" type="button" class="admin-message-image" aria-label="查看图片大图" @click="preview=message.mediaUrl"><img :src="message.mediaUrl" :alt="message.fileName || '消息图片'" loading="lazy" @load="mediaLoaded"/></button><video v-else-if="message.type==='video' && message.mediaUrl" :src="message.mediaUrl" controls playsinline preload="metadata" :aria-label="message.fileName || '消息视频'"></video><div v-else-if="message.type==='richtext'" class="safe-richtext" v-html="safeRichText(message.content)"></div><template v-else>{{message.content}}</template></div></div></div>
-          <form class="admin-reply" @submit.prevent="send()"><div class="reply-label"><MessageCircle :size="14"/>回复访客<span>回复会自动同步到访客页面</span></div><RichTextEditor v-model="reply" :disabled="sending||uploading" @send="send()"/><div class="reply-footer"><div class="reply-media-actions"><button type="button" :disabled="sending||uploading" title="发送图片，最大 5 MB" @click="choose('image')"><ImagePlus :size="17"/><span>图片</span></button><button type="button" :disabled="sending||uploading" title="发送 MP4 / WebM 视频，最大 25 MB" @click="choose('video')"><Video :size="17"/><span>视频</span></button><span v-if="uploading" class="admin-upload-progress"><LoaderCircle :size="14"/>正在上传并发送…</span><small v-else>{{replyPlain.length}} / 4000</small></div><el-button type="primary" native-type="submit" :loading="sending" :disabled="!replyPlain||uploading"><Send :size="14"/>发送回复</el-button></div><input ref="mediaInput" type="file" :accept="mediaKind==='image'?'image/jpeg,image/png,image/webp,image/avif':'video/mp4,video/webm'" hidden @change="upload"/></form>
+          <div ref="messageList" class="admin-messages"><div class="message-start">会话开始于 {{dateTime(selected.conversation.createdAt)}}</div><div v-for="message in selected.messages" :key="message.id" class="admin-message" :class="{outgoing:message.role==='admin',automatic:message.role==='assistant'}"><div class="message-role">{{message.role==='admin'?'管理员':message.role==='assistant'?'服务助手 · 自动回复':selected.conversation.visitorLabel}}<time>{{dateTime(message.createdAt)}}</time></div><div class="admin-message-bubble" :class="{'media-message-bubble':message.type==='image'||message.type==='video'}"><button v-if="message.type==='image' && message.mediaUrl" type="button" class="admin-message-image" aria-label="查看图片大图" @click="preview=message.mediaUrl"><img :src="message.mediaUrl" :alt="message.fileName || '消息图片'" loading="lazy" @load="mediaLoaded"/></button><VideoPlayer v-else-if="message.type==='video' && message.mediaUrl" class="admin-message-video" :src="message.mediaUrl" :label="message.fileName || '消息视频'"/><div v-else-if="message.type==='richtext'" class="safe-richtext" v-html="safeRichText(message.content)"></div><template v-else>{{message.content}}</template></div></div></div>
+          <form class="admin-reply" @submit.prevent="send()">
+            <div class="reply-label"><MessageCircle :size="14"/>回复访客<span>回复会自动同步到访客页面</span></div>
+            <RichTextEditor v-model="reply" :disabled="sending||uploading" @send="send()"/>
+            <UploadProgress v-if="uploading" :progress="uploadProgress" :sending="sending" :label="mediaKind==='video'?'视频上传进度':'图片上传进度'" @cancel="uploadController?.abort()"/>
+            <div class="reply-footer"><div class="reply-media-actions"><button type="button" :disabled="sending||uploading" title="发送图片，最大 5 MB" @click="choose('image')"><ImagePlus :size="17"/><span>图片</span></button><button type="button" :disabled="sending||uploading" title="发送 MP4 / WebM 视频，最大 25 MB" @click="choose('video')"><Video :size="17"/><span>视频</span></button><small v-if="!uploading">{{replyPlain.length}} / 4000</small></div><el-button type="primary" native-type="submit" :loading="sending" :disabled="!replyPlain||uploading"><Send :size="14"/>发送回复</el-button></div>
+            <input ref="mediaInput" type="file" :accept="mediaKind==='image'?'image/jpeg,image/png,image/webp,image/avif':'video/mp4,video/webm'" aria-label="上传聊天媒体" hidden @change="upload"/>
+          </form>
         </template>
         <div v-else class="conversation-empty"><span class="conversation-empty-icon"><MessageCircle :size="38" :stroke-width="1.1"/></span><h3>一份认真回复，从这里开始</h3><p>选择左侧会话，查看访客的问题。<br/>支持富文本、图片和视频回复。</p><span class="empty-security"><ShieldCheck :size="13"/>仅管理员与对应访客可查看</span></div>
       </section>

@@ -8,6 +8,7 @@ import { api, ApiError } from './api';
 import { formatChatTime, needsTimeSeparator } from './chat-time';
 import SliderVerification from './components/SliderVerification.vue';
 import TurnstileVerification from './components/TurnstileVerification.vue';
+import VideoPlayer from './components/VideoPlayer.vue';
 
 const bootstrap = ref<BootstrapResponse | null>(null);
 const content = ref<SiteDocument | null>(null);
@@ -246,7 +247,7 @@ onBeforeUnmount(() => { disposed = true; if (poll) clearInterval(poll); if (toas
             <div class="message-avatar-spacer"></div>
             <article class="content-card" :class="`content-card-${block.type}`">
               <button v-if="block.type === 'image' && safeAsset(block.imageUrl)" class="content-image-button" type="button" :aria-label="`查看大图：${block.title || '服务介绍图片'}`" @click="imagePreview = {url: block.imageUrl, title: block.title || '服务介绍图片'}"><img class="content-card-image" :src="block.imageUrl" :alt="block.title || '服务介绍图片'" loading="lazy" /></button>
-              <video v-else-if="block.type === 'video' && safeAsset(block.videoUrl)" class="content-card-video" :src="block.videoUrl" controls playsinline preload="metadata" :aria-label="block.title || '服务介绍视频'"></video>
+              <VideoPlayer v-else-if="block.type === 'video' && safeAsset(block.videoUrl)" class="content-card-video" :src="block.videoUrl" :label="block.title || '服务介绍视频'"/>
               <div v-if="block.title || block.content || block.type === 'link'" class="content-card-copy">
                 <h3 v-if="block.title">{{ block.title }}</h3>
                 <div v-if="block.content && block.contentFormat === 'richtext'" class="rich-message content-richtext" v-html="richText(block.content)"></div>
@@ -260,7 +261,7 @@ onBeforeUnmount(() => { disposed = true; if (poll) clearInterval(poll); if (toas
           <div v-if="separator" class="date-divider message-time-divider"><span></span><time :datetime="message.createdAt">{{ separator }}</time><span></span></div>
           <div class="message-group" :class="message.role === 'visitor' ? 'visitor-message' : 'assistant-message'">
             <img v-if="message.role !== 'visitor'" class="message-avatar" :style="avatarStyle" :src="content.settings.avatarUrl || '/assets/avatar.svg'" alt="客服头像" @error="imageFallback" />
-            <div class="message-main"><span class="message-author">{{ message.role === 'visitor' ? '你' : `${brand} · ${message.role === 'admin' ? '客服回复' : '服务助手'}` }}</span><div class="message-bubble" :class="{'media-bubble': message.type === 'image' || message.type === 'video'}"><button v-if="message.type === 'image' && safeAsset(message.mediaUrl)" class="message-image-button" type="button" aria-label="查看消息大图" @click="imagePreview = {url: message.mediaUrl!, title: message.fileName || '消息图片'}"><img class="message-image" :src="message.mediaUrl" :alt="message.fileName || '消息图片'" loading="lazy" @load="onMediaLoaded" /></button><video v-else-if="message.type === 'video' && safeAsset(message.mediaUrl)" class="message-video" :src="message.mediaUrl" controls playsinline preload="metadata" @loadedmetadata="onMediaLoaded" :aria-label="message.fileName || '消息视频'"></video><div v-else-if="message.type === 'richtext' && message.role !== 'visitor'" class="rich-message" v-html="richText(message.content)"></div><p v-else>{{ message.content }}</p></div><span v-if="message.role === 'visitor'" class="message-sent"><Check :size="11" /> 已发送</span></div>
+            <div class="message-main"><span class="message-author">{{ message.role === 'visitor' ? '你' : `${brand} · ${message.role === 'admin' ? '客服回复' : '服务助手'}` }}</span><div class="message-bubble" :class="{'media-bubble': message.type === 'image' || message.type === 'video'}"><button v-if="message.type === 'image' && safeAsset(message.mediaUrl)" class="message-image-button" type="button" aria-label="查看消息大图" @click="imagePreview = {url: message.mediaUrl!, title: message.fileName || '消息图片'}"><img class="message-image" :src="message.mediaUrl" :alt="message.fileName || '消息图片'" loading="lazy" @load="onMediaLoaded" /></button><VideoPlayer v-else-if="message.type === 'video' && safeAsset(message.mediaUrl)" class="message-video" :src="message.mediaUrl!" @loadedmetadata="onMediaLoaded" :label="message.fileName || '消息视频'"/><div v-else-if="message.type === 'richtext' && message.role !== 'visitor'" class="rich-message" v-html="richText(message.content)"></div><p v-else>{{ message.content }}</p></div><span v-if="message.role === 'visitor'" class="message-sent"><Check :size="11" /> 已发送</span></div>
           </div>
           </template>
           <div v-if="sending" class="sending-indicator"><span></span><span></span><span></span><span class="sr-only">正在发送消息</span></div><div class="chat-scroll-end"></div>

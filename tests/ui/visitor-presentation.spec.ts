@@ -94,7 +94,7 @@ test('发布视频和聊天视频都等待点击播放', async ({page}) => {
   await mockRoom(page, documentWith([{type: 'video', title: '发布视频', videoUrl: '/uploads/test-video.webm'}]), [
     {id: 'video-message', role: 'admin', type: 'video', content: '', mediaUrl: '/uploads/test-video.webm', fileName: '聊天视频', createdAt},
   ]);
-  const videos = page.locator('.content-card video, .message-video');
+  const videos = page.locator('.content-card video, .message-video video');
   await expect(videos).toHaveCount(2);
   for (const video of await videos.all()) {
     await video.scrollIntoViewIfNeeded();
@@ -105,9 +105,7 @@ test('发布视频和聊天视频都等待点击播放', async ({page}) => {
     })).toEqual({paused: true, autoplay: false, controls: true, playsInline: true});
   }
   expect(await page.evaluate(() => (window as unknown as {videoPlays: number}).videoPlays)).toBe(0);
-  const video = videos.last();
-  await video.focus();
-  await video.press('Space');
+  await page.getByRole('button', {name: '播放聊天视频', exact: true}).click();
   await expect.poll(() => page.evaluate(() => (window as unknown as {videoPlays: number}).videoPlays)).toBeGreaterThan(0);
 });
 

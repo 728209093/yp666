@@ -9,6 +9,7 @@ import {createContentId} from '../content-id';
 import ImageInput from './ImageInput.vue';
 import MediaPreview from './MediaPreview.vue';
 import VideoInput from './VideoInput.vue';
+import VideoPlayer from './VideoPlayer.vue';
 import RichTextEditor from './RichTextEditor.vue';
 import {plainToRichText, richTextPlain, safeRichText} from '../richtext';
 const props = defineProps<{section: string}>();
@@ -396,7 +397,7 @@ onBeforeUnmount(() => {window.removeEventListener('beforeunload', beforeUnload);
 <div class="preview-message-row"><img :src="assetUrl(draft.settings.avatarUrl || '/assets/avatar.svg')" alt="客服头像" :class="`avatar-${draft.settings.avatarShape}`"/><div class="preview-bubble">{{draft.settings.welcomeMessage}}</div></div>
 <article v-for="block in draft.blocks.filter(b => b.enabled)" :key="block.id" class="preview-block">
 <button v-if="block.type === 'image' && block.imageUrl" type="button" class="preview-block-image" aria-label="查看草稿图片大图" @click="imagePreview = assetUrl(block.imageUrl)"><img :src="assetUrl(block.imageUrl)" :alt="block.title"/></button>
-<video v-if="block.type === 'video' && block.videoUrl" class="preview-block-video" :src="assetUrl(block.videoUrl)" controls playsinline preload="metadata" :aria-label="block.title || '内容视频预览'"></video>
+<VideoPlayer v-if="block.type === 'video' && block.videoUrl" class="preview-block-video" :src="assetUrl(block.videoUrl)" :label="block.title || '内容视频预览'"/>
 <h4 v-if="block.title">{{block.title}}</h4>
 <div v-if="block.contentFormat === 'richtext'" class="safe-richtext" v-html="safeRichText(block.content)"></div><p v-else>{{block.content}}</p>
 <span v-if="block.type === 'link'" class="preview-link">{{block.buttonText || '了解更多'}}<ChevronRight :size="13"/>
