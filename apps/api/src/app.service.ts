@@ -15,6 +15,7 @@ import { challengeIsValid, hashToken, newToken, parse, shanghaiDate } from './se
 import { renderSliderPuzzle } from './puzzle.js';
 import { normalizeMessage, richTextPlain, type MessageInput } from './chat-content.js';
 import { decodeUpload } from './media.js';
+import { assertNewPassword } from './password.js';
 
 const MS_MINUTE=60_000;
 const ADMIN_SESSION_HOURS=12;
@@ -40,6 +41,7 @@ export class AppService implements OnApplicationBootstrap {
     const raw=process.env.ADMIN_USERNAME!.trim();
     if (!raw || raw.length>64) throw new Error('ADMIN_USERNAME 长度需要为 1 至 64 个字符');
     if(!await this.db.admin.findUnique({where:{username:raw}})) {
+      assertNewPassword(process.env.ADMIN_PASSWORD!);
       const passwordHash=await bcrypt.hash(process.env.ADMIN_PASSWORD!,12);
       await this.db.admin.upsert({where:{username:raw},update:{},create:{username:raw,passwordHash}});
     }
@@ -263,7 +265,7 @@ export class AppService implements OnApplicationBootstrap {
   async changePassword(adminId:string,currentPassword:string,newPassword:string) {
     const admin=await this.db.admin.findUnique({where:{id:adminId}});
     if(!admin||!await bcrypt.compare(currentPassword,admin.passwordHash))throw new UnauthorizedException('当前密码不正确');
-    if(newPassword.length<12||newPassword.length>128)throw new BadRequestException('新密码长度需要为 12 至 128 个字符');
+    assertNewPassword(newPassword);
     const passwordHash=await bcrypt.hash(newPassword,12);
     await this.db.$transaction([
       this.db.admin.update({where:{id:adminId},data:{passwordHash}}),

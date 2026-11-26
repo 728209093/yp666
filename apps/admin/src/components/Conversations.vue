@@ -56,6 +56,7 @@ async function load(silent=false){
   if(!silent){loading.value=true;error.value='';}
   try{
     const rows=await api<ConversationSummary[]>('/admin/conversations');
+    if(disposed)return;
     if(initialized){
       const fresh=rows.find(row=>{const previous=conversations.value.find(v=>v.id===row.id);return row.unreadCount>0&&(!previous||row.unreadCount>previous.unreadCount||row.updatedAt!==previous.updatedAt);});
       if(fresh)notify(fresh.visitorLabel);
@@ -73,13 +74,15 @@ async function scrollBottom(){await nextTick();if(messageList.value)messageList.
 function mediaLoaded(){if(messageList.value&&messageList.value.scrollHeight-messageList.value.scrollTop-messageList.value.clientHeight<340)void scrollBottom();}
 async function poll(){
   if(disposed||inFlight||sending.value||uploading.value||detailLoading.value)return;
+  const version=loadId;
   inFlight=true;
   try{
     await load(true);
+    if(disposed||version!==loadId||sending.value||uploading.value||detailLoading.value)return;
     const id=selected.value?.conversation.id;if(!id)return;
     if(document.hidden)return;
     const detail=await api<ConversationDetail>(`/admin/conversations/${encodeURIComponent(id)}`);
-    if(selected.value?.conversation.id!==id)return;
+    if(disposed||version!==loadId||selected.value?.conversation.id!==id)return;
     const previous=selected.value.messages.at(-1)?.id;
     const nearBottom=!messageList.value||messageList.value.scrollHeight-messageList.value.scrollTop-messageList.value.clientHeight<130;
     selected.value=detail;const row=conversations.value.find(v=>v.id===id);if(row)row.unreadCount=0;
@@ -88,9 +91,10 @@ async function poll(){
 }
 async function send(payload?:{type:'image'|'video';mediaUrl:string;fileName:string}){
   const id=selected.value?.conversation.id;
-  if(!id||sending.value||(!payload&&!replyPlain.value))return;
+  if(!id||sending.value||detailLoading.value||(!payload&&(!replyPlain.value||uploading.value)))return;
   if(!payload&&replyPlain.value.length>4000){ElMessage.warning('回复文字最多 4000 个字符');return;}
-  sending.value=true;
+  // Invalidate detail requests started before this reply, even if they return after it.
+  ++loadId;sending.value=true;
   try{
     const body=payload?{...payload,content:''}:{type:'richtext',content:safeRichText(reply.value)};
     const messages=await api<ChatMessage[]>(`/admin/conversations/${encodeURIComponent(id)}/messages`,{method:'POST',body:JSON.stringify(body)});
@@ -102,11 +106,12 @@ async function choose(kind:'image'|'video'){
   mediaKind.value=kind;await nextTick();mediaInput.value?.click();
 }
 async function upload(event:Event){
+  if(sending.value||uploading.value||detailLoading.value)return;
   const input=event.target as HTMLInputElement;const file=input.files?.[0];if(!file)return;
   const kind=mediaKind.value;const max=(kind==='image'?5:25)*1024*1024;
   if(file.size>max){ElMessage.warning(kind==='image'?'图片最大 5 MB':'视频最大 25 MB');input.value='';return;}
   if(kind==='image'&&!['image/jpeg','image/png','image/webp','image/avif'].includes(file.type)||kind==='video'&&!['video/mp4','video/webm'].includes(file.type)){ElMessage.warning('请选择支持的图片或 MP4 / WebM 视频');input.value='';return;}
-  uploading.value=true;
+  ++loadId;uploading.value=true;
   try{const data=new FormData();data.append('file',file);const result=await api<{url:string;type:'image'|'video';fileName:string}>('/admin/uploads',{method:'POST',body:data});await send({type:result.type,mediaUrl:result.url,fileName:result.fileName});}
   catch(e){ElMessage.error((e as Error).message);}finally{uploading.value=false;input.value='';}
 }

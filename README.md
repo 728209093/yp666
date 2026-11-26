@@ -43,6 +43,8 @@ pnpm dev
 
 初始管理员用户名和密码保存在 `.env.local` 的 `ADMIN_USERNAME`、`ADMIN_PASSWORD`。首次创建后，密码以数据库中的哈希为准；更改环境变量不会覆盖现有账号。登录后台后可修改密码。
 
+首次创建管理员或修改密码时，新密码至少需要 12 个字符，UTF-8 编码总长度不超过 72 字节（英文、数字和常用符号各占 1 字节，中文通常占 3 字节）。这可以避免超长密码被 bcrypt 截断；现有账号仍可使用原密码登录。
+
 数据库连接说明见 [DATABASE.example.md](./DATABASE.example.md)。本地程序通过 TLS 连接 MySQL；服务器实际地址、密码和本机专用连接说明不随源码上传。
 
 ## 使用流程
@@ -74,12 +76,15 @@ pnpm dev
 ```sh
 pnpm typecheck
 pnpm test
+pnpm test:ui
 pnpm build
 # 本地三个服务启动后执行
 pnpm test:e2e
 ```
 
 Windows 默认使用已安装的 Chrome 执行浏览器测试。其他系统可先执行 `pnpm exec playwright install chromium`，或设置 `CHROME_PATH` 指向本机 Chrome。
+
+`pnpm test:ui` 使用模拟 API 验证后台密码表单及会话轮询，不连接数据库，可独立执行。它会在本机 5274 端口启动管理后台；Windows 上也支持已安装的 Edge，或用 `CHROME_PATH` 指定浏览器路径。
 
 浏览器测试连接真实数据库，创建独立的测试访客，并在结束后清理；发布测试会暂时修改示例文案并恢复。请仅在本地开发环境执行，不要针对正在接待真实访客的站点执行。
 

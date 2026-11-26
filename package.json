@@ -10,6 +10,7 @@
     "db:generate": "pnpm --filter @yp666/api db:generate",
     "db:push": "pnpm --filter @yp666/api db:push",
     "test": "pnpm --filter @yp666/api test",
+    "test:ui": "playwright test --config playwright.ui.config.ts",
     "test:e2e": "playwright test"
   },
   "devDependencies": {
