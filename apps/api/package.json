@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "pnpm build && concurrently -k -n types,server \"tsc -p tsconfig.json --watch --preserveWatchOutput\" \"node --watch dist/main.js\"",
+    "dev": "pnpm build && concurrently -k -n types,server \"tsc -p tsconfig.json --watch --preserveWatchOutput\" \"tsx watch --clear-screen=false dist/main.js\"",
     "build": "node scripts/prisma.mjs generate && tsc -p tsconfig.json",
     "start": "node dist/main.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
