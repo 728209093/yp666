@@ -42,6 +42,7 @@ let toastTimer: ReturnType<typeof setTimeout> | undefined;
 let pollInFlight = false;
 let disposed = false;
 let lastSettingsCheck = 0;
+let lastVisitCheck = 0;
 let audio: AudioContext | undefined;
 let activeUpload: XMLHttpRequest | undefined;
 let previousFocus: HTMLElement | null = null;
@@ -97,7 +98,7 @@ function messageSummary(message: ChatMessage) {
 }
 async function initialize() {
   const started = Date.now(); loading.value = true; fatalError.value = '';
-  try { bootstrap.value = await api<BootstrapResponse>('/public/bootstrap'); if (!mustVerify.value) await loadRoom(); }
+  try { bootstrap.value = await api<BootstrapResponse>('/public/bootstrap'); lastVisitCheck = Date.now(); if (!mustVerify.value) await loadRoom(); }
   catch (error) { fatalError.value = error instanceof Error ? error.message : '页面加载失败，请重试'; }
   finally { await pause(Math.max(0, 650 - (Date.now() - started))); loading.value = false; }
 }
@@ -198,7 +199,13 @@ async function selectFile(event: Event, expectedType: 'image' | 'video') {
 async function refreshMessages() {
   if (disposed || loading.value || entering.value || pollInFlight) return; pollInFlight = true;
   try {
-    if (!content.value) { if (Date.now() - lastSettingsCheck > 12000) { bootstrap.value = await api<BootstrapResponse>('/public/bootstrap'); lastSettingsCheck = Date.now(); } return; }
+    // Only visible pages send visit heartbeats. Message polling stays active for reply notifications.
+    if (!document.hidden && (Date.now() - lastVisitCheck > 60000 || (!content.value && Date.now() - lastSettingsCheck > 12000))) {
+      bootstrap.value = await api<BootstrapResponse>('/public/bootstrap'); lastVisitCheck = Date.now();
+      if (!content.value) lastSettingsCheck = Date.now();
+      if (mustVerify.value && content.value) { expireSession(); return; }
+    }
+    if (!content.value) return;
     if (!sending.value) { const revision = historyRevision; const history = await api<ChatMessage[]>('/visitor/messages'); if (!sending.value && revision === historyRevision && (history.length !== messages.value.length || history.at(-1)?.id !== messages.value.at(-1)?.id)) await applyHistory(history); }
     if (Date.now() - lastSettingsCheck > 12000) { content.value = await api<SiteDocument>('/public/content'); lastSettingsCheck = Date.now(); }
   } catch (error) { if (error instanceof ApiError && error.status === 403) expireSession(); } finally { pollInFlight = false; }

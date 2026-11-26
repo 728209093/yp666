@@ -69,6 +69,22 @@ export interface AdminContentResponse {draft: SiteDocument; published: SiteDocum
 export interface ConversationSummary {id: string; visitorLabel: string; lastMessage: string; unreadCount: number; updatedAt: string; createdAt: string}
 export interface ConversationDetail {conversation: ConversationSummary; messages: ChatMessage[]}
 export interface DashboardStats {visitsToday: number; verifiedToday: number; totalConversations: number; unreadConversations: number; recentVisits: {date: string; visits: number; verified: number}[]}
+export type VisitDeviceType = 'mobile' | 'tablet' | 'desktop' | 'unknown';
+export interface VisitDetail {
+  id: string;
+  visitorId: string;
+  date: string;
+  verified: boolean;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  ipAddress: string | null;
+  deviceType: VisitDeviceType;
+  browser: string | null;
+  os: string | null;
+  userAgent: string | null;
+  referrer: string | null;
+}
+export interface VisitListResponse {items: VisitDetail[]; total: number; page: number; pageSize: number; totalPages: number}
 export const defaultDocument: SiteDocument = {
   settings: {
     brandName: '青屿', title: '让每一次相遇，都更近一点。', subtitle: '一个安静、真诚的在线会客厅。\n关于我们的服务，你想了解的，都可以在这里聊聊。',

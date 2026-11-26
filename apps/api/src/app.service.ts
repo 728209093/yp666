@@ -3,10 +3,11 @@ import bcrypt from 'bcryptjs';
 import { randomInt, randomUUID, createHash } from 'node:crypto';
 import { mkdir, writeFile, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
+import { setTimeout as wait } from 'node:timers/promises';
 import {
   defaultDocument,
   type AdminContentResponse, type BootstrapResponse, type ChatMessage, type ConversationDetail,
-  type ConversationSummary, type DashboardStats, type SiteDocument, type SliderChallenge,
+  type ConversationSummary, type DashboardStats, type SiteDocument, type SliderChallenge, type VisitListResponse,
 } from '@yp666/shared';
 import { BadRequestException, ForbiddenException, NotFoundException, ServiceUnavailableException, UnauthorizedException } from '@nestjs/common';
 import { DatabaseService } from './database.service.js';
@@ -17,6 +18,7 @@ import { normalizeMessage, richTextPlain, type MessageInput } from './chat-conte
 import { decodeUpload } from './media.js';
 import { assertNewPassword } from './password.js';
 import { normalizeSiteDocument } from './site-content.js';
+import { type VisitMetadata, type VisitQuery } from './visits.js';
 
 const MS_MINUTE=60_000;
 const ADMIN_SESSION_HOURS=12;
@@ -31,6 +33,27 @@ const summaryShape=(row: {id:string;visitorLabel:string;unreadCount:number;creat
 type UploadOwner={visitorId:string;adminId?:never}|{adminId:string;visitorId?:never};
 
 function clampSite(value: unknown): SiteDocument { return normalizeSiteDocument(value); }
+
+const visitTransactionOptions={maxWait:15_000,timeout:15_000};
+// Retry only rolled-back write conflicts or this daily-visit unique key.
+// Connection, transaction-start and other failures still surface normally.
+async function retryVisitTransaction<T>(work: () => Promise<T>): Promise<T> {
+  let retriedDailyKey=false;
+  for(let attempt=0;;attempt++) {
+    try { return await work(); }
+    catch (error) {
+      const candidate=error as {code?:string;meta?:{modelName?:string;target?:unknown;driverAdapterError?:{cause?:{kind?:string;constraint?:{index?:unknown}}}}}|null;
+      const target=candidate?.meta?.target;
+      const driverCause=candidate?.meta?.driverAdapterError?.cause;
+      const dailyKey=candidate?.code==='P2002'&&(!candidate.meta?.modelName||candidate.meta.modelName==='Visit')&&
+        (target==='Visit_visitorId_date_key'||(Array.isArray(target)&&target.length===2&&target.includes('visitorId')&&target.includes('date'))||
+          (driverCause?.kind==='UniqueConstraintViolation'&&driverCause.constraint?.index==='Visit_visitorId_date_key'));
+      if(attempt>=2||(!dailyKey&&candidate?.code!=='P2034')||(dailyKey&&retriedDailyKey))throw error;
+      if(dailyKey)retriedDailyKey=true;
+      await wait(25*(attempt+1));
+    }
+  }
+}
 
 
 @Injectable()
@@ -63,12 +86,14 @@ export class AppService implements OnApplicationBootstrap {
     return {...visitor, generatedToken:token};
   }
 
-  async saveVisit(visitorId:string,verified:boolean) {
-    const date=shanghaiDate();
-    await this.db.$transaction([
-      this.db.visit.upsert({where:{visitorId_date:{visitorId,date}},create:{visitorId,date,verified},update:verified?{verified:true}:{}}),
-      this.db.visitor.update({where:{id:visitorId},data:{lastSeenAt:new Date()}}),
-    ]);
+  async saveVisit(visitorId:string,verified:boolean,metadata?:VisitMetadata) {
+    const now=new Date();
+    const date=shanghaiDate(now);
+    await retryVisitTransaction(()=>this.db.$transaction(async tx=>{
+      // All visit/verification transactions lock Visitor first, then Visit.
+      await tx.visitor.update({where:{id:visitorId},data:{lastSeenAt:now}});
+      await tx.visit.upsert({where:{visitorId_date:{visitorId,date}},create:{visitorId,date,verified,...metadata,createdAt:now,lastSeenAt:now},update:{...metadata,lastSeenAt:now,...(verified?{verified:true}:{})}});
+    },visitTransactionOptions));
   }
 
   async site() {
@@ -98,7 +123,7 @@ export class AppService implements OnApplicationBootstrap {
     return {id,kind:'slider',background:`data:image/png;base64,${background.toString('base64')}`,piece:`data:image/png;base64,${piece.toString('base64')}`,width:IMAGE_WIDTH,height:IMAGE_HEIGHT,pieceSize:PIECE_SIZE,pieceY,expiresAt:new Date(Date.now()+2*MS_MINUTE).toISOString()};
   }
 
-  async verifySlider(visitorId:string,challengeId:string,position:number,elapsedMs:number):Promise<Date> {
+  async verifySlider(visitorId:string,challengeId:string,position:number,elapsedMs:number,metadata?:VisitMetadata):Promise<Date> {
     const id=hashToken(challengeId).slice(0,32);
     const challenge=await this.db.challenge.findFirst({where:{id,visitorId}});
     if (!challenge) throw new ForbiddenException('验证已失效，请重新尝试');
@@ -108,15 +133,15 @@ export class AppService implements OnApplicationBootstrap {
     const until=new Date(now+published.settings.verificationTtlMinutes*MS_MINUTE);
     const claimed=await this.db.challenge.updateMany({where:{id,visitorId,consumed:false,attempts:challenge.attempts,expiresAt:{gt:new Date(now)}},data:{attempts:{increment:1},consumed:true}});
     if(!claimed.count||!good)throw new ForbiddenException('验证未通过或已经失效，请刷新后重试');
-    await this.db.$transaction(async tx=>{
-      await tx.visitor.update({where:{id:visitorId},data:{verifiedUntil:until}});
+    await retryVisitTransaction(()=>this.db.$transaction(async tx=>{
+      await tx.visitor.update({where:{id:visitorId},data:{verifiedUntil:until,lastSeenAt:new Date(now)}});
       const date=shanghaiDate(new Date(now));
-      await tx.visit.upsert({where:{visitorId_date:{visitorId,date}},create:{visitorId,date,verified:true},update:{verified:true}});
-    });
+      await tx.visit.upsert({where:{visitorId_date:{visitorId,date}},create:{visitorId,date,verified:true,...metadata,createdAt:new Date(now),lastSeenAt:new Date(now)},update:{verified:true,lastSeenAt:new Date(now)}});
+    },visitTransactionOptions));
     return until;
   }
 
-  async verifyTurnstile(visitorId:string,token:string,ip:string|undefined) {
+  async verifyTurnstile(visitorId:string,token:string,ip:string|undefined,metadata?:VisitMetadata) {
     if(captchaProvider!=='turnstile') throw new BadRequestException('当前验证方式不匹配');
     const body=new URLSearchParams({secret:process.env.TURNSTILE_SECRET_KEY!,response:token,...(ip?{remoteip:ip}:{})});
     let result:{success:boolean;hostname?:string};
@@ -128,10 +153,13 @@ export class AppService implements OnApplicationBootstrap {
     const hostnames=new Set([...allowedOrigins].map(origin=>new URL(origin).hostname));
     if(!result.success||!result.hostname||!hostnames.has(result.hostname))throw new ForbiddenException('验证未通过，请重新尝试');
     const {published}=await this.site();
-    const until=new Date(Date.now()+published.settings.verificationTtlMinutes*MS_MINUTE);
-    await this.db.visitor.update({where:{id:visitorId},data:{verifiedUntil:until}});
-    const date=shanghaiDate();
-    await this.db.visit.upsert({where:{visitorId_date:{visitorId,date}},create:{visitorId,date,verified:true},update:{verified:true}});
+    const now=new Date();
+    const until=new Date(now.getTime()+published.settings.verificationTtlMinutes*MS_MINUTE);
+    const date=shanghaiDate(now);
+    await retryVisitTransaction(()=>this.db.$transaction(async tx=>{
+      await tx.visitor.update({where:{id:visitorId},data:{verifiedUntil:until,lastSeenAt:now}});
+      await tx.visit.upsert({where:{visitorId_date:{visitorId,date}},create:{visitorId,date,verified:true,...metadata,createdAt:now,lastSeenAt:now},update:{verified:true,lastSeenAt:now}});
+    },visitTransactionOptions));
     return until;
   }
 
@@ -191,8 +219,9 @@ export class AppService implements OnApplicationBootstrap {
   }
 
   async dashboard():Promise<DashboardStats> {
-    const today=shanghaiDate();
-    const days=Array.from({length:7},(_,i)=>{const date=new Date();date.setDate(date.getDate()-(6-i));return shanghaiDate(date);});
+    const now=new Date();
+    const today=shanghaiDate(now);
+    const days=Array.from({length:7},(_,i)=>shanghaiDate(new Date(now.getTime()-(6-i)*86_400_000)));
     const [counts,totalConversations,unreadConversations]=await Promise.all([
       this.db.visit.groupBy({by:['date'],where:{date:{in:days}},_count:{_all:true}}),
       this.db.conversation.count(),this.db.conversation.count({where:{unreadCount:{gt:0}}}),
@@ -202,6 +231,20 @@ export class AppService implements OnApplicationBootstrap {
     const verified=new Map(verifiedRows.map(item=>[item.date,(verifiedRows.filter(row=>row.date===item.date).reduce((n,row)=>n+row._count._all,0))]));
     const todayRows=verifiedRows.filter(row=>row.date===today);
     return {visitsToday:totals.get(today)||0,verifiedToday:todayRows.reduce((sum,item)=>sum+item._count._all,0),totalConversations,unreadConversations,recentVisits:days.map(date=>({date,visits:totals.get(date)||0,verified:verified.get(date)||0}))};
+  }
+
+  async listVisits(query:VisitQuery):Promise<VisitListResponse> {
+    const {dateFrom,dateTo,deviceType,keyword,page,pageSize}=query;
+    const where={date:{gte:dateFrom,lte:dateTo},...(deviceType?{deviceType}:{}),
+      ...(keyword?{OR:[{ipAddress:{contains:keyword}},{visitorId:{contains:keyword}}]}:{})};
+    const [total,rows]=await this.db.$transaction([
+      this.db.visit.count({where}),
+      this.db.visit.findMany({where,orderBy:[{lastSeenAt:'desc'},{id:'desc'}],skip:(page-1)*pageSize,take:pageSize}),
+    ]);
+    return {items:rows.map(row=>({id:row.id,visitorId:row.visitorId,date:row.date,verified:row.verified,
+      firstSeenAt:row.createdAt.toISOString(),lastSeenAt:row.lastSeenAt.toISOString(),ipAddress:row.ipAddress,
+      deviceType:(['mobile','tablet','desktop'].includes(row.deviceType)?row.deviceType:'unknown') as VisitMetadata['deviceType'],
+      browser:row.browser,os:row.os,userAgent:row.userAgent,referrer:row.referrer})),total,page,pageSize,totalPages:Math.ceil(total/pageSize)};
   }
 
   async listConversations():Promise<ConversationSummary[]> {

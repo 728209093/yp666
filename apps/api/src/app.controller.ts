@@ -1,4 +1,4 @@
-import { Body, CanActivate, Controller, ExecutionContext, Get, HttpCode, Injectable, Post, Put, Param, Req, Res, UnauthorizedException, UploadedFile, UseGuards, UseInterceptors, BadRequestException, ForbiddenException } from '@nestjs/common';
+import { Body, CanActivate, Controller, ExecutionContext, Get, HttpCode, Injectable, Post, Put, Param, Query, Req, Res, UnauthorizedException, UploadedFile, UseGuards, UseInterceptors, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import type { Request, Response } from 'express';
 import { z } from 'zod';
@@ -8,6 +8,7 @@ import { adminCookie, cookieOptions, parse, visitorCookie } from './security.js'
 import { captchaProvider } from './config.js';
 import { messageSchema } from './chat-content.js';
 import { maximumUploadBytes } from './media.js';
+import { parseVisitQuery, visitMetadata } from './visits.js';
 
 const loginSchema=z.object({username:z.string().trim().min(1).max(64),password:z.string().min(1).max(128)});
 const passwordSchema=z.object({currentPassword:z.string().min(1).max(128),newPassword:z.string().min(12,'新密码至少 12 位').max(128)});
@@ -57,7 +58,7 @@ export class PublicController {
     const record=await visitor(this.app,request,response);
     const {published}=await this.app.site();
     const result=await this.app.bootstrap(record,published);
-    await this.app.saveVisit(record.id,result.verified);
+    await this.app.saveVisit(record.id,result.verified,visitMetadata(request));
     return result;
   }
 
@@ -75,10 +76,10 @@ export class PublicController {
     let expiresAt:Date;
     if(captchaProvider==='turnstile') {
       if(!input.token)throw new BadRequestException('缺少验证结果');
-      expiresAt=await this.app.verifyTurnstile(record.id,input.token,request.ip);
+      expiresAt=await this.app.verifyTurnstile(record.id,input.token,request.ip,visitMetadata(request));
     } else {
       if(!input.challengeId||input.position===undefined||input.elapsedMs===undefined)throw new BadRequestException('缺少拼图验证结果');
-      expiresAt=await this.app.verifySlider(record.id,input.challengeId,input.position,input.elapsedMs);
+      expiresAt=await this.app.verifySlider(record.id,input.challengeId,input.position,input.elapsedMs,visitMetadata(request));
     }
     return {verified:true,expiresAt:expiresAt.toISOString()};
   }
@@ -169,6 +170,7 @@ export class AdminController {
   constructor(private readonly app:AppService) {}
 
   @Get('dashboard') dashboard() {return this.app.dashboard();}
+  @Get('visits') visits(@Query()query:unknown) {return this.app.listVisits(parseVisitQuery(query));}
   @Get('content') content() {return this.app.adminContent();}
   @Put('content')
   save(@Body()body:{document?:unknown}) {

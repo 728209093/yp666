@@ -1,21 +1,23 @@
 <script setup lang="ts">
 import {computed, defineAsyncComponent, onBeforeUnmount, onMounted, ref} from 'vue';
 import {ElMessage, ElMessageBox} from 'element-plus';
-import {ArrowRight, ArrowUpRight, Bell, ChevronDown, CircleHelp, ExternalLink, LayoutDashboard, Leaf, LogOut, Menu, MessageCircle, PanelTop, Settings2, ShieldCheck, Sparkles, X} from 'lucide-vue-next';
+import {ArrowRight, ArrowUpRight, Bell, ChevronDown, CircleHelp, ExternalLink, Footprints, LayoutDashboard, Leaf, LogOut, Menu, MessageCircle, PanelTop, Settings2, ShieldCheck, Sparkles, X} from 'lucide-vue-next';
 import {api} from './api';
 import {publicSiteUrl} from './utils';
 const Dashboard = defineAsyncComponent(() => import('./components/Dashboard.vue'));
 const ContentEditor = defineAsyncComponent(() => import('./components/ContentEditor.vue'));
 const Conversations = defineAsyncComponent(() => import('./components/Conversations.vue'));
 const Security = defineAsyncComponent(() => import('./components/Security.vue'));
+const Visits = defineAsyncComponent(() => import('./components/Visits.vue'));
 
-type Section = 'overview' | 'content' | 'settings' | 'faq' | 'messages' | 'security';
+type Section = 'overview' | 'content' | 'settings' | 'faq' | 'messages' | 'visits' | 'security';
 const nav = [
   {id: 'overview' as Section, label: '工作台概览', icon: LayoutDashboard},
   {id: 'content' as Section, label: '内容管理', icon: PanelTop},
   {id: 'settings' as Section, label: '页面设置', icon: Settings2},
   {id: 'faq' as Section, label: '常见问题', icon: CircleHelp},
   {id: 'messages' as Section, label: '访客咨询', icon: MessageCircle},
+  {id: 'visits' as Section, label: '访问明细', icon: Footprints},
 ];
 const active = ref<Section>('overview');
 const menuOpen = ref(false);
@@ -31,7 +33,7 @@ const editorSection = computed(() => ['content', 'settings', 'faq'].includes(act
 
 function syncHash() {
   const value = window.location.hash.replace('#', '') as Section;
-  active.value = ['overview', 'content', 'settings', 'faq', 'messages', 'security'].includes(value) ? value : 'overview';
+  active.value = ['overview', 'content', 'settings', 'faq', 'messages', 'visits', 'security'].includes(value) ? value : 'overview';
 }
 function navigate(section: string) {window.location.hash = section; active.value = section as Section; menuOpen.value = false;}
 function unauthorized() {authenticated.value = false; username.value = '';}
@@ -94,9 +96,14 @@ onBeforeUnmount(() => {window.removeEventListener('hashchange', syncHash); windo
         <Dashboard v-if="active === 'overview'" @navigate="navigate"/>
         <ContentEditor v-show="editorSection" :section="active" @dirty="dirty = $event"/>
         <Conversations v-if="active === 'messages'"/>
+        <Visits v-if="active === 'visits'"/>
         <Security v-if="active === 'security'" :username="username"/>
       </main>
       <footer class="workspace-footer"><span>青屿 · 每一次连接，都值得用心。</span><span class="footer-status"><i></i>本地工作空间</span></footer>
     </div>
   </div>
 </template>
+
+<style scoped>
+.sidebar{overflow-y:auto}
+</style>

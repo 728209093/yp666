@@ -54,6 +54,13 @@ model Visit {
   date      String   @db.Char(10)
   verified  Boolean  @default(false)
   createdAt DateTime @default(now()) @db.DateTime(3)
+  lastSeenAt DateTime @default(now()) @db.DateTime(3)
+  ipAddress String? @db.VarChar(45)
+  deviceType String @default("unknown") @db.VarChar(16)
+  browser String? @db.VarChar(80)
+  os String? @db.VarChar(80)
+  userAgent String? @db.VarChar(512)
+  referrer String? @db.VarChar(1000)
   @@unique([visitorId, date])
   @@index([date])
 }

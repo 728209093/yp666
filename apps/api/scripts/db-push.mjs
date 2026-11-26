@@ -22,6 +22,11 @@ try {
       if (!['type','mediaUrl','fileName'].every(name => fieldNames.has(name))) {
         throw new Error('项目数据库需要执行经过审核的聊天媒体迁移；初始化命令不会改动已有结构。');
       }
+      const visitColumns = await connection.query('SHOW COLUMNS FROM `Visit`');
+      const visitFields = new Set(visitColumns.map(row => row.Field));
+      if (!['lastSeenAt','ipAddress','deviceType','browser','os','userAgent','referrer'].every(name => visitFields.has(name))) {
+        throw new Error('项目数据库需要先备份并执行 deploy/migrations/20261126-visit-details.sql；初始化命令不会改动已有结构。');
+      }
       console.log('项目数据表已经存在，保留现有数据；后续结构更新请使用审核过的迁移。');
     } else {
       throw new Error('数据库中已有其它表或不完整的项目结构，已停止。旧版项目请执行 deploy/migrations 中经过审核的迁移；此命令只初始化空库，不会重置或删除数据。');

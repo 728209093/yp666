@@ -73,6 +73,10 @@ pnpm --filter @yp666/admin exec vite build --base=/admin/
 
 升级到支持媒体消息的版本前，先备份项目数据库和 shared/data，再执行 [媒体消息迁移](./deploy/migrations/20261125-chat-media.sql)。该迁移仅新增消息字段和上传记录表，保留原有账号、设置和聊天数据；不要对已有库运行重置命令。新 release 完成构建和迁移后再切换 current。
 
+升级到访问明细版本前，先备份 `Visit` 表结构和数据，再使用具备项目库 ALTER 权限的账号执行 [访问明细迁移](./deploy/migrations/20261126-visit-details.sql)，每个数据库执行一次。迁移仅新增列，将历史最近访问时间回填为原始首次访问时间，不改动每日去重唯一键和已有计数；历史 IP、设备等无法补采。先完成迁移，再启动新 API。新增字段兼容旧 API，回退代码时保留这些列即可。新建空库使用初始化命令时已包含这些字段。
+
+访问明细使用 API 经可信代理解析的客户端 IP。按照上述 `TRUST_PROXY=loopback` 与 Nginx 模板部署才能记录真实外部地址；本地浏览器经 Vite 代理访问可能显示回环地址。不要直接信任客户端传入的转发头。设备、系统和浏览器根据 User-Agent 推断，IP 不用于合并访客。
+
 Nginx 模板已将请求上限设置为 27 MB，用于接收最多 25 MB 的视频及 multipart 元数据。应用分别限制图片为 5 MB、视频为 25 MB，并验证实际文件内容。
 
 运行时只需读取 release 下的代码和依赖；不要给服务账号代码写权限。Nginx 的 `www-data` 用户需要遍历 release 目录并读取两个 `dist` 目录，shared 配置不必对其开放。
