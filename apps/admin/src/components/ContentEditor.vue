@@ -5,6 +5,7 @@ import {ArrowDown, ArrowUp, Check, ChevronRight, CircleHelp, Eye, FileText, Imag
 import {defaultDocument, siteDocumentSchema, type AdminContentResponse, type ContentBlock, type SiteDocument} from '@yp666/shared';
 import {api} from '../api';
 import {assetUrl, dateTime} from '../utils';
+import {createContentId} from '../content-id';
 import ImageInput from './ImageInput.vue';
 import MediaPreview from './MediaPreview.vue';
 import VideoInput from './VideoInput.vue';
@@ -49,12 +50,12 @@ async function publish() {
   busy.value = true;
   try {if (dirty.value) apply(await api<AdminContentResponse>('/admin/content', {method: 'PUT', body: JSON.stringify({document: draft.value})})); apply(await api<AdminContentResponse>('/admin/content/publish', {method: 'POST'})); ElMessage.success('发布成功，前台内容已更新');} catch (e) {ElMessage.error((e as Error).message);} finally {busy.value = false;}
 }
-function addBlock(type: ContentBlock['type']) {const block: ContentBlock = {id: crypto.randomUUID(), type, title: '', content: '', contentFormat: 'richtext', imageUrl: '', videoUrl: '', buttonText: type === 'link' ? '了解更多' : '', url: '', enabled: true, sortOrder: draft.value.blocks.length}; draft.value.blocks.push(block); expanded.value = block.id;}
+function addBlock(type: ContentBlock['type']) {const block: ContentBlock = {id: createContentId(), type, title: '', content: '', contentFormat: 'richtext', imageUrl: '', videoUrl: '', buttonText: type === 'link' ? '了解更多' : '', url: '', enabled: true, sortOrder: draft.value.blocks.length}; draft.value.blocks.push(block); expanded.value = block.id;}
 function editContent(block: ContentBlock, value: string) {block.content = value; block.contentFormat = 'richtext';}
 function editorContent(block: ContentBlock) {return block.contentFormat === 'richtext' ? block.content : plainToRichText(block.content);}
 function move(index: number, offset: number) {const target = index + offset; if (target < 0 || target >= draft.value.blocks.length) return; [draft.value.blocks[index], draft.value.blocks[target]] = [draft.value.blocks[target]!, draft.value.blocks[index]!]; draft.value.blocks.forEach((block, i) => block.sortOrder = i);}
 async function removeBlock(id: string) {try {await ElMessageBox.confirm('删除后保存并发布，前台将不再展示此模块。', '删除内容模块', {confirmButtonText: '删除', cancelButtonText: '保留', type: 'warning'}); draft.value.blocks = draft.value.blocks.filter(block => block.id !== id); draft.value.blocks.forEach((block, i) => block.sortOrder = i);} catch {}}
-function addFaq() {draft.value.faqs.push({id: crypto.randomUUID(), question: '', answer: '', enabled: true});}
+function addFaq() {draft.value.faqs.push({id: createContentId(), question: '', answer: '', enabled: true});}
 function removeFaq(id: string) {draft.value.faqs = draft.value.faqs.filter(faq => faq.id !== id);}
 function beforeUnload(event: BeforeUnloadEvent) {if (dirty.value) {event.preventDefault(); event.returnValue = '';}}
 onMounted(() => {void load(); window.addEventListener('beforeunload', beforeUnload);});
