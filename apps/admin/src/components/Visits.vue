@@ -26,7 +26,7 @@ function time(value: string) {
   return Number.isNaN(date.getTime()) ? '未采集' : formatter.format(date);
 }
 function device(visit: VisitDetail): VisitDeviceType {
-  return Object.hasOwn(deviceNames, visit.deviceType) ? visit.deviceType : 'unknown';
+  return Object.prototype.hasOwnProperty.call(deviceNames, visit.deviceType) ? visit.deviceType : 'unknown';
 }
 function dateNumber(value: string) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return NaN;

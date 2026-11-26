@@ -151,3 +151,48 @@ test('刷新后失效页码自动回退，跨日重置使用当前北京时间',
   await expect.poll(() => queries.at(-1)?.get('dateFrom')).toBe('2026-11-27');
   await expect(page.getByLabel('结束日期')).toHaveValue('2026-11-27');
 });
+
+test('缺少 Object.hasOwn 的浏览器仍可展示设备，并安全回退未知及继承属性键', async ({page}) => {
+  const errors: string[] = [];
+  page.on('pageerror', error => errors.push(error.message));
+  await page.addInitScript(() => {
+    Object.defineProperty(Object, 'hasOwn', {value: undefined, writable: true, configurable: true});
+  });
+  const unexpectedDevice: VisitDetail = {...oldVisit, id: 'visit-unexpected', deviceType: 'smart-tv' as VisitDetail['deviceType']};
+  const inheritedDevice: VisitDetail = {...oldVisit, id: 'visit-inherited', deviceType: 'constructor' as VisitDetail['deviceType']};
+  await mockAdmin(page, async route => {await route.fulfill({json: response([mobileVisit, desktopVisit, oldVisit, unexpectedDevice, inheritedDevice])});});
+  await page.goto('/#visits');
+  expect(await page.evaluate(() => typeof Object.hasOwn)).toBe('undefined');
+  const rows = page.locator('.visit-table tbody tr');
+  await expect(rows).toHaveCount(5);
+  await expect(rows.nth(0).locator('.visit-device')).toHaveText('手机');
+  await expect(rows.nth(1).locator('.visit-device')).toHaveText('电脑');
+  for (const index of [2, 3, 4]) await expect(rows.nth(index).locator('.visit-device')).toHaveText('未识别');
+  await expect(rows.nth(2)).toContainText('未采集');
+  await page.setViewportSize({width: 390, height: 844});
+  const cards = page.locator('.visit-cards .visit-card');
+  await expect(cards).toHaveCount(5);
+  await expect(cards.nth(0).locator('.visit-device')).toHaveText('手机');
+  await expect(cards.nth(1).locator('.visit-device')).toHaveText('电脑');
+  for (const index of [2, 3, 4]) await expect(cards.nth(index).locator('.visit-device')).toHaveText('未识别');
+  expect(errors).toEqual([]);
+});
+
+test('访问明细会话失效返回 401 时回到登录页且不发生渲染错误', async ({page}) => {
+  const errors: string[] = [];
+  let visitsRequests = 0;
+  page.on('pageerror', error => errors.push(error.message));
+  await page.addInitScript(() => {
+    Object.defineProperty(Object, 'hasOwn', {value: undefined, writable: true, configurable: true});
+  });
+  await mockAdmin(page, async route => {
+    visitsRequests++;
+    await route.fulfill({status: 401, json: {message: '请先登录管理后台'}});
+  });
+  await page.goto('/#visits');
+  await expect(page.getByRole('heading', {name: '欢迎回来', exact: true})).toBeVisible();
+  await expect(page.getByRole('button', {name: '进入工作台', exact: true})).toBeVisible();
+  await expect(page.locator('.visits-page')).toHaveCount(0);
+  expect(visitsRequests).toBe(1);
+  expect(errors).toEqual([]);
+});
