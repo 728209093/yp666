@@ -1,5 +1,8 @@
 import { z } from 'zod';
 
+export const richTextFontSizes = [12, 14, 16, 18, 20, 24, 28, 32, 36] as const;
+export const richTextFontFamilies = ['Arial', 'Georgia', 'Times New Roman', 'Microsoft YaHei', 'sans-serif', 'serif'] as const;
+
 const safeUrl = z.string().max(2000).refine(value => !value || /^https?:\/\//i.test(value) || /^\/(?:assets|uploads)\/[\w./-]+$/.test(value), '请输入 http(s) 链接或本站资源路径');
 export const settingsSchema = z.object({
   brandName: z.string().trim().min(1).max(30),
@@ -25,14 +28,18 @@ export const settingsSchema = z.object({
 });
 export const blockSchema = z.object({
   id: z.string().min(1).max(80),
-  type: z.enum(['text', 'image', 'link']),
+  type: z.enum(['text', 'image', 'video', 'link']),
   title: z.string().max(100),
-  content: z.string().max(4000),
+  content: z.string().max(20000),
+  contentFormat: z.enum(['plain', 'richtext']).default('plain'),
   imageUrl: safeUrl,
+  videoUrl: safeUrl.default(''),
   buttonText: z.string().max(40),
   url: safeUrl,
   enabled: z.boolean(),
   sortOrder: z.number().int().min(0).max(10000),
+}).superRefine((block, context) => {
+  if (block.contentFormat === 'plain' && block.content.length > 4000) context.addIssue({code: 'custom', path: ['content'], message: '正文内容最多 4000 个字符'});
 });
 export const faqSchema = z.object({
   id: z.string().min(1).max(80),
@@ -72,9 +79,9 @@ export const defaultDocument: SiteDocument = {
     contactHint: '发送你的问题，开启一段轻松的对话',
   },
   blocks: [
-    {id: 'welcome', type: 'text', title: '从一个简单的问候开始', content: '我们相信，好的服务始于倾听。\n在这里了解最新资讯、查看服务介绍，或者直接把问题留给我们。', imageUrl: '', buttonText: '', url: '', enabled: true, sortOrder: 0},
-    {id: 'discover', type: 'image', title: '留一点时间，给美好发生', content: '慢一点，也能遇见生活里的小惊喜。', imageUrl: '/assets/landscape.svg', buttonText: '', url: '', enabled: true, sortOrder: 1},
-    {id: 'guide', type: 'text', title: '开始之前，你可能想知道', content: '01  浏览下方的常见问题，快速找到答案\n02  在输入框里写下你的问题\n03  发送后保留当前页面，等待回复', imageUrl: '', buttonText: '', url: '', enabled: true, sortOrder: 2},
+    {id: 'welcome', type: 'text', title: '从一个简单的问候开始', content: '我们相信，好的服务始于倾听。\n在这里了解最新资讯、查看服务介绍，或者直接把问题留给我们。', contentFormat: 'plain', imageUrl: '', videoUrl: '', buttonText: '', url: '', enabled: true, sortOrder: 0},
+    {id: 'discover', type: 'image', title: '留一点时间，给美好发生', content: '慢一点，也能遇见生活里的小惊喜。', contentFormat: 'plain', imageUrl: '/assets/landscape.svg', videoUrl: '', buttonText: '', url: '', enabled: true, sortOrder: 1},
+    {id: 'guide', type: 'text', title: '开始之前，你可能想知道', content: '01  浏览下方的常见问题，快速找到答案\n02  在输入框里写下你的问题\n03  发送后保留当前页面，等待回复', contentFormat: 'plain', imageUrl: '', videoUrl: '', buttonText: '', url: '', enabled: true, sortOrder: 2},
   ],
   faqs: [
     {id: 'services', question: '这里可以了解哪些服务？', answer: '你可以在这里查看服务介绍、最新资讯和使用帮助。如果有具体需求，直接留言告诉我们就好。', enabled: true},

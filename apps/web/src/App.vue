@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import { ArrowDown, ArrowRight, Bell, BellRing, Check, ChevronRight, CircleHelp, ExternalLink, ImagePlus, LoaderCircle, Megaphone, Plus, RefreshCw, ShieldCheck, Smile, Video, Volume2, VolumeX, X } from 'lucide-vue-next';
+import { ArrowDown, ArrowRight, BellRing, Check, ChevronRight, CircleHelp, ExternalLink, ImagePlus, LoaderCircle, Megaphone, Plus, RefreshCw, ShieldCheck, Smile, Video, X } from 'lucide-vue-next';
 import DOMPurify from 'dompurify';
 import type { BootstrapResponse, ChatMessage, SiteDocument } from '@yp666/shared';
+import { richTextFontFamilies, richTextFontSizes } from '@yp666/shared';
 import { api, ApiError } from './api';
+import { formatChatTime, needsTimeSeparator } from './chat-time';
 import SliderVerification from './components/SliderVerification.vue';
 import TurnstileVerification from './components/TurnstileVerification.vue';
 
@@ -32,12 +34,10 @@ const replyToast = ref('');
 const unread = ref(0);
 const soundEnabled = ref(true);
 const notificationPermission = ref<NotificationPermission | 'unsupported'>('unsupported');
-const notificationHint = ref('');
 const composing = ref(false);
 const emojis = ['😀','😊','🥰','😍','😎','🤔','😭','😂','🤣','🥳','😅','😉','🤗','😇','🥺','👍','👏','🙌','🙏','🤝','👌','✌️','❤️','💚','💛','💯','🔥','🎉','🌹','🌸','☀️','🌈','🎁','✅','☕','🍀'];
 let poll: ReturnType<typeof setInterval> | undefined;
 let toastTimer: ReturnType<typeof setTimeout> | undefined;
-let hintTimer: ReturnType<typeof setTimeout> | undefined;
 let pollInFlight = false;
 let disposed = false;
 let lastSettingsCheck = 0;
@@ -54,25 +54,34 @@ const loadingText = computed(() => content.value?.settings.loadingText || bootst
 const blocks = computed(() => content.value?.blocks.filter(block => block.enabled).sort((a, b) => a.sortOrder - b.sortOrder) || []);
 const faqs = computed(() => content.value?.faqs.filter(faq => faq.enabled) || []);
 const visibleMessages = computed(() => messages.value.filter(message => !(message.role === 'assistant' && (!message.type || message.type === 'text') && message.content === content.value?.settings.welcomeMessage)));
+const timelineMessages = computed(() => visibleMessages.value.map((message, index, history) => ({
+  message,
+  separator: needsTimeSeparator(message.createdAt, history[index - 1]?.createdAt) ? formatChatTime(message.createdAt) : '',
+})));
 const announcement = computed(() => content.value?.settings.announcement || '');
 const avatarStyle = computed(() => ({borderRadius: content.value?.settings.avatarShape === 'circle' ? '50%' : content.value?.settings.avatarShape === 'square' ? '0' : '9px'}));
 const gateBackground = computed(() => backgroundStyle(bootstrap.value?.site.verificationBackgroundUrl));
 const chatBackground = computed(() => backgroundStyle(content.value?.settings.chatBackgroundUrl || content.value?.settings.backgroundUrl));
-const today = new Intl.DateTimeFormat('zh-CN', {month: 'long', day: 'numeric'}).format(new Date());
 
 function safeLink(value: string): string | undefined { return /^https?:\/\//i.test(value) ? value : undefined; }
 function safeAsset(value: string | undefined): string | undefined { return value && (/^https?:\/\//i.test(value) || /^\/(?:assets|uploads)\/[\w./-]+$/.test(value)) ? value : undefined; }
 function backgroundStyle(value: string | undefined) { const url = safeAsset(value); return url ? {backgroundImage: `linear-gradient(rgba(247,249,244,.2),rgba(247,249,244,.2)), url(${JSON.stringify(url)})`} : {}; }
 function imageFallback(event: Event) { const image = event.target as HTMLImageElement; if (!image.src.endsWith('/assets/avatar.svg')) image.src = '/assets/avatar.svg'; }
-function time(value: string) { const date = new Date(value); return Number.isNaN(date.valueOf()) ? '' : new Intl.DateTimeFormat('zh-CN', {hour: '2-digit', minute: '2-digit', hour12: false}).format(date); }
 function pause(milliseconds: number) { return new Promise(resolve => setTimeout(resolve, milliseconds)); }
 
 function richText(value: string) {
-  const clean = DOMPurify.sanitize(value, {ALLOWED_TAGS: ['p','br','span','strong','b','em','i','u','s','a','ul','ol','li','blockquote'], ALLOWED_ATTR: ['style','href','target','rel'], ALLOW_DATA_ATTR: false});
+  const clean = DOMPurify.sanitize(value, {ALLOWED_TAGS: ['p','div','br','span','strong','b','em','i','u','s','a','ul','ol','li','blockquote','code'], ALLOWED_ATTR: ['style','href','target','rel'], ALLOW_DATA_ATTR: false});
   const root = new DOMParser().parseFromString(clean, 'text/html').body;
   for (const element of root.querySelectorAll<HTMLElement>('[style]')) {
-    const color = element.style.color; element.removeAttribute('style');
-    if (color && CSS.supports('color', color)) element.style.color = color;
+    const {color, backgroundColor, fontSize, fontFamily, textAlign} = element.style;
+    element.removeAttribute('style');
+    const safeColor = /^(#[a-f\d]{3,8}|rgba?\([\d\s,.%]+\)|[a-z]+)$/i;
+    if (color && safeColor.test(color) && CSS.supports('color', color)) element.style.color = color;
+    if (backgroundColor && safeColor.test(backgroundColor) && CSS.supports('color', backgroundColor)) element.style.backgroundColor = backgroundColor;
+    if (richTextFontSizes.some(size => fontSize === `${size}px`)) element.style.fontSize = fontSize;
+    const family = fontFamily.replace(/^["']|["']$/g, '');
+    if (richTextFontFamilies.some(allowed => allowed.toLowerCase() === family.toLowerCase())) element.style.fontFamily = family;
+    if (['left', 'center', 'right'].includes(textAlign)) element.style.textAlign = textAlign;
   }
   for (const link of root.querySelectorAll('a')) {
     if (!safeLink(link.getAttribute('href') || '')) link.removeAttribute('href');
@@ -131,18 +140,6 @@ function playNotification() {
       oscillator.connect(gain); gain.connect(audio.destination); oscillator.start(start + offset!); oscillator.stop(start + offset! + .2);
     }
   } catch { /* Browser audio restrictions do not block replies. */ }
-}
-function toggleSound() {
-  soundEnabled.value = !soundEnabled.value;
-  try { localStorage.setItem('yp666-reply-sound', String(soundEnabled.value)); } catch { /* Optional preference. */ }
-  if (soundEnabled.value) { unlockAudio(); showHint('声音提示已开启，收到客服回复时会响铃'); } else showHint('声音提示已关闭');
-}
-function showHint(value: string) { notificationHint.value = value; if (hintTimer) clearTimeout(hintTimer); hintTimer = setTimeout(() => notificationHint.value = '', 4500); }
-async function enableNotifications() {
-  if (!('Notification' in window)) { showHint('当前浏览器支持页面内新消息提示'); return; }
-  if (Notification.permission === 'denied') { showHint('浏览器通知已关闭，可在浏览器网站设置中开启'); return; }
-  try { notificationPermission.value = await Notification.requestPermission(); showHint(notificationPermission.value === 'granted' ? '已开启浏览器消息通知' : '你仍会在页面中收到新消息提示'); }
-  catch { showHint('你仍会在页面中收到新消息提示'); }
 }
 function notifyReplies(incoming: ChatMessage[]) {
   if (!incoming.length) return;
@@ -222,7 +219,7 @@ onMounted(() => {
   void initialize(); poll = setInterval(() => void refreshMessages(), 4000);
   document.addEventListener('keydown', trapDialogKeys); document.addEventListener('visibilitychange', onVisibility); document.addEventListener('pointerdown', unlockAudio); document.addEventListener('keydown', unlockAudio);
 });
-onBeforeUnmount(() => { disposed = true; if (poll) clearInterval(poll); if (toastTimer) clearTimeout(toastTimer); if (hintTimer) clearTimeout(hintTimer); activeUpload?.abort(); void audio?.close(); document.removeEventListener('keydown', trapDialogKeys); document.removeEventListener('visibilitychange', onVisibility); document.removeEventListener('pointerdown', unlockAudio); document.removeEventListener('keydown', unlockAudio); });
+onBeforeUnmount(() => { disposed = true; if (poll) clearInterval(poll); if (toastTimer) clearTimeout(toastTimer); activeUpload?.abort(); void audio?.close(); document.removeEventListener('keydown', trapDialogKeys); document.removeEventListener('visibilitychange', onVisibility); document.removeEventListener('pointerdown', unlockAudio); document.removeEventListener('keydown', unlockAudio); });
 </script>
 
 <template>
@@ -239,21 +236,33 @@ onBeforeUnmount(() => { disposed = true; if (poll) clearInterval(poll); if (toas
     </main>
     <main v-else-if="content && !mustVerify" class="room-layout">
       <section class="chat-room" aria-label="在线会客厅" :style="chatBackground">
-        <div class="room-topline">
+        <div v-if="announcement" class="room-topline">
           <div v-if="announcement" class="announcement" :style="{ '--announcement-duration': `${content.settings.announcementSpeed || 24}s` }"><Megaphone :size="18" /><div class="announcement-window" tabindex="0" :aria-label="announcement"><div class="announcement-track" aria-hidden="true"><span>{{ announcement }}</span><span>{{ announcement }}</span></div></div></div>
-          <div class="notification-tools"><button v-if="content.settings.notificationSound !== false" class="icon-button" type="button" :aria-label="soundEnabled ? '关闭声音提示' : '开启声音提示'" :title="soundEnabled ? '关闭声音提示' : '开启声音提示'" :aria-pressed="soundEnabled" @click="toggleSound"><Volume2 v-if="soundEnabled" :size="18" /><VolumeX v-else :size="18" /></button><button class="icon-button" type="button" aria-label="开启浏览器消息通知" title="浏览器消息通知" @click="enableNotifications"><BellRing v-if="notificationPermission === 'granted'" :size="18" /><Bell v-else :size="18" /></button><button class="icon-button" type="button" aria-label="查看常见问题" title="常见问题" @click="showHelp = true"><CircleHelp :size="18" /></button></div>
         </div>
-        <div v-if="notificationHint" class="notification-hint" role="status">{{ notificationHint }}</div>
         <button v-if="replyToast" class="reply-toast" type="button" @click="scrollBottom()"><BellRing :size="17" /><span><strong>客服有新回复</strong>{{ replyToast }}</span><ArrowDown :size="17" /></button>
         <div ref="scroller" class="chat-scroll" tabindex="0" aria-label="对话内容" @scroll="onScroll">
-          <div class="date-divider"><span></span>{{ today }}<span></span></div>
           <div v-if="content.settings.welcomeMessage" class="message-group assistant-message"><img class="message-avatar" :style="avatarStyle" :src="content.settings.avatarUrl || '/assets/avatar.svg'" alt="客服头像" @error="imageFallback" /><div class="message-main"><span class="message-author">{{ brand }} · 服务助手</span><div class="message-bubble welcome-bubble"><p>{{ content.settings.welcomeMessage }}</p></div></div></div>
-          <div v-for="block in blocks" :key="block.id" class="message-group assistant-message content-message"><div class="message-avatar-spacer"></div><article class="content-card" :class="`content-card-${block.type}`"><button v-if="block.type === 'image' && safeAsset(block.imageUrl)" class="content-image-button" type="button" :aria-label="`查看大图：${block.title || '服务介绍图片'}`" @click="imagePreview = {url: block.imageUrl, title: block.title || '服务介绍图片'}"><img class="content-card-image" :src="block.imageUrl" :alt="block.title || '服务介绍图片'" loading="lazy" /></button><div class="content-card-copy"><h3 v-if="block.title">{{ block.title }}</h3><p v-if="block.content">{{ block.content }}</p><a v-if="block.type === 'link' && safeLink(block.url)" :href="safeLink(block.url)" target="_blank" rel="noopener noreferrer" class="content-link">{{ block.buttonText || '了解更多' }}<ExternalLink :size="15" /></a></div></article></div>
-          <div v-if="faqs.length" class="faq-section"><div class="faq-heading"><CircleHelp :size="14" /><span>常见问题</span></div><div class="faq-list"><button v-for="faq in faqs" :key="faq.id" class="faq-chip" type="button" :disabled="sending" @click="send(faq.question)">{{ faq.question }}<ChevronRight :size="14" /></button></div></div>
-          <div v-for="message in visibleMessages" :key="message.id" class="message-group" :class="message.role === 'visitor' ? 'visitor-message' : 'assistant-message'">
-            <img v-if="message.role !== 'visitor'" class="message-avatar" :style="avatarStyle" :src="content.settings.avatarUrl || '/assets/avatar.svg'" alt="客服头像" @error="imageFallback" />
-            <div class="message-main"><span class="message-author">{{ message.role === 'visitor' ? '你' : `${brand} · ${message.role === 'admin' ? '客服回复' : '服务助手'}` }}<time :datetime="message.createdAt">{{ time(message.createdAt) }}</time></span><div class="message-bubble" :class="{'media-bubble': message.type === 'image' || message.type === 'video'}"><button v-if="message.type === 'image' && safeAsset(message.mediaUrl)" class="message-image-button" type="button" aria-label="查看消息大图" @click="imagePreview = {url: message.mediaUrl!, title: message.fileName || '消息图片'}"><img class="message-image" :src="message.mediaUrl" :alt="message.fileName || '消息图片'" loading="lazy" @load="onMediaLoaded" /></button><video v-else-if="message.type === 'video' && safeAsset(message.mediaUrl)" class="message-video" :src="message.mediaUrl" controls playsinline preload="metadata" @loadedmetadata="onMediaLoaded" :aria-label="message.fileName || '消息视频'"></video><div v-else-if="message.type === 'richtext' && message.role !== 'visitor'" class="rich-message" v-html="richText(message.content)"></div><p v-else>{{ message.content }}</p></div><span v-if="message.role === 'visitor'" class="message-sent"><Check :size="11" /> 已发送</span></div>
+          <div v-for="block in blocks" :key="block.id" class="message-group assistant-message content-message">
+            <div class="message-avatar-spacer"></div>
+            <article class="content-card" :class="`content-card-${block.type}`">
+              <button v-if="block.type === 'image' && safeAsset(block.imageUrl)" class="content-image-button" type="button" :aria-label="`查看大图：${block.title || '服务介绍图片'}`" @click="imagePreview = {url: block.imageUrl, title: block.title || '服务介绍图片'}"><img class="content-card-image" :src="block.imageUrl" :alt="block.title || '服务介绍图片'" loading="lazy" /></button>
+              <video v-else-if="block.type === 'video' && safeAsset(block.videoUrl)" class="content-card-video" :src="block.videoUrl" controls playsinline preload="metadata" :aria-label="block.title || '服务介绍视频'"></video>
+              <div v-if="block.title || block.content || block.type === 'link'" class="content-card-copy">
+                <h3 v-if="block.title">{{ block.title }}</h3>
+                <div v-if="block.content && block.contentFormat === 'richtext'" class="rich-message content-richtext" v-html="richText(block.content)"></div>
+                <p v-else-if="block.content">{{ block.content }}</p>
+                <a v-if="block.type === 'link' && safeLink(block.url)" :href="safeLink(block.url)" target="_blank" rel="noopener noreferrer" class="content-link">{{ block.buttonText || '了解更多' }}<ExternalLink :size="15" /></a>
+              </div>
+            </article>
           </div>
+          <div v-if="faqs.length" class="faq-section"><div class="faq-heading"><CircleHelp :size="14" /><span>常见问题</span></div><div class="faq-list"><button v-for="faq in faqs" :key="faq.id" class="faq-chip" type="button" :disabled="sending" @click="send(faq.question)">{{ faq.question }}<ChevronRight :size="14" /></button></div></div>
+          <template v-for="{message, separator} in timelineMessages" :key="message.id">
+          <div v-if="separator" class="date-divider message-time-divider"><span></span><time :datetime="message.createdAt">{{ separator }}</time><span></span></div>
+          <div class="message-group" :class="message.role === 'visitor' ? 'visitor-message' : 'assistant-message'">
+            <img v-if="message.role !== 'visitor'" class="message-avatar" :style="avatarStyle" :src="content.settings.avatarUrl || '/assets/avatar.svg'" alt="客服头像" @error="imageFallback" />
+            <div class="message-main"><span class="message-author">{{ message.role === 'visitor' ? '你' : `${brand} · ${message.role === 'admin' ? '客服回复' : '服务助手'}` }}</span><div class="message-bubble" :class="{'media-bubble': message.type === 'image' || message.type === 'video'}"><button v-if="message.type === 'image' && safeAsset(message.mediaUrl)" class="message-image-button" type="button" aria-label="查看消息大图" @click="imagePreview = {url: message.mediaUrl!, title: message.fileName || '消息图片'}"><img class="message-image" :src="message.mediaUrl" :alt="message.fileName || '消息图片'" loading="lazy" @load="onMediaLoaded" /></button><video v-else-if="message.type === 'video' && safeAsset(message.mediaUrl)" class="message-video" :src="message.mediaUrl" controls playsinline preload="metadata" @loadedmetadata="onMediaLoaded" :aria-label="message.fileName || '消息视频'"></video><div v-else-if="message.type === 'richtext' && message.role !== 'visitor'" class="rich-message" v-html="richText(message.content)"></div><p v-else>{{ message.content }}</p></div><span v-if="message.role === 'visitor'" class="message-sent"><Check :size="11" /> 已发送</span></div>
+          </div>
+          </template>
           <div v-if="sending" class="sending-indicator"><span></span><span></span><span></span><span class="sr-only">正在发送消息</span></div><div class="chat-scroll-end"></div>
         </div>
         <button v-if="showScrollBottom || unread" class="scroll-bottom" type="button" @click="scrollBottom()"><ArrowDown :size="16" />{{ unread ? `${unread} 条新回复` : '回到最新消息' }}</button>
@@ -262,7 +271,7 @@ onBeforeUnmount(() => { disposed = true; if (poll) clearInterval(poll); if (toas
           <div v-if="uploadProgress !== null" class="upload-progress" role="status"><LoaderCircle :size="15" class="spinning" /><span>{{ uploadProgress === 100 ? '正在发送…' : `正在上传 ${uploadProgress}%` }}</span><progress :value="uploadProgress" max="100"></progress></div>
           <div v-if="showEmoji" class="emoji-panel"><div class="panel-heading"><span>选择表情</span><button class="icon-button" type="button" aria-label="关闭表情" @click="showEmoji = false"><X :size="17" /></button></div><div class="emoji-grid"><button v-for="emoji in emojis" :key="emoji" type="button" :aria-label="`插入表情 ${emoji}`" @click="insertEmoji(emoji)">{{ emoji }}</button></div></div>
           <div v-if="showAttachments" class="attachment-panel"><button type="button" :disabled="sending" @click="imageInput?.click()"><ImagePlus :size="24" /><strong>发送图片</strong><small>JPG / PNG / WebP · 5 MB</small></button><button type="button" :disabled="sending" @click="videoInput?.click()"><Video :size="24" /><strong>发送视频</strong><small>MP4 / WebM · 25 MB</small></button></div>
-          <form class="composer-form" @submit.prevent="send()"><button class="composer-icon emoji-toggle" type="button" aria-label="选择表情" :aria-expanded="showEmoji" @click="showEmoji = !showEmoji; showAttachments = false"><Smile :size="24" /></button><textarea ref="composer" v-model="text" rows="1" maxlength="4000" :placeholder="content.settings.contactHint || '输入消息…'" aria-label="咨询消息" @input="resizeComposer" @keydown="onComposerKeydown" @compositionstart="composing = true" @compositionend="composing = false"></textarea><button v-if="text.trim()" class="text-send-button" type="submit" :disabled="sending" aria-label="发送消息"><LoaderCircle v-if="sending" :size="20" class="spinning" /><ArrowRight v-else :size="20" /></button><button class="composer-icon attachment-toggle" type="button" aria-label="发送图片或视频" :disabled="sending" :aria-expanded="showAttachments" @click="showAttachments = !showAttachments; showEmoji = false"><Plus :size="27" :class="{'plus-open': showAttachments}" /></button></form>
+          <form class="composer-form" @submit.prevent="send()"><textarea ref="composer" v-model="text" rows="1" maxlength="4000" :placeholder="content.settings.contactHint || '输入消息…'" aria-label="咨询消息" @input="resizeComposer" @keydown="onComposerKeydown" @compositionstart="composing = true" @compositionend="composing = false"></textarea><button v-if="text.trim()" class="text-send-button" type="submit" :disabled="sending" aria-label="发送消息"><LoaderCircle v-if="sending" :size="20" class="spinning" /><ArrowRight v-else :size="20" /></button><button class="composer-icon emoji-toggle" type="button" aria-label="选择表情" :aria-expanded="showEmoji" @click="showEmoji = !showEmoji; showAttachments = false"><Smile :size="24" /></button><button class="composer-icon attachment-toggle" type="button" aria-label="发送图片或视频" :disabled="sending" :aria-expanded="showAttachments" @click="showAttachments = !showAttachments; showEmoji = false"><Plus :size="27" :class="{'plus-open': showAttachments}" /></button></form>
           <input ref="imageInput" class="sr-only" type="file" accept="image/jpeg,image/png,image/webp,image/avif" aria-label="上传聊天图片" @change="selectFile($event, 'image')" /><input ref="videoInput" class="sr-only" type="file" accept="video/mp4,video/webm" aria-label="上传聊天视频" @change="selectFile($event, 'video')" />
         </footer>
       </section>

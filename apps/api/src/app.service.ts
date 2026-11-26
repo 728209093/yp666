@@ -4,7 +4,7 @@ import { randomInt, randomUUID, createHash } from 'node:crypto';
 import { mkdir, writeFile, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
-  defaultDocument, siteDocumentSchema,
+  defaultDocument,
   type AdminContentResponse, type BootstrapResponse, type ChatMessage, type ConversationDetail,
   type ConversationSummary, type DashboardStats, type SiteDocument, type SliderChallenge,
 } from '@yp666/shared';
@@ -16,6 +16,7 @@ import { renderSliderPuzzle } from './puzzle.js';
 import { normalizeMessage, richTextPlain, type MessageInput } from './chat-content.js';
 import { decodeUpload } from './media.js';
 import { assertNewPassword } from './password.js';
+import { normalizeSiteDocument } from './site-content.js';
 
 const MS_MINUTE=60_000;
 const ADMIN_SESSION_HOURS=12;
@@ -29,7 +30,7 @@ const messagePreview=(message:{type?:string;content:string}|undefined)=>!message
 const summaryShape=(row: {id:string;visitorLabel:string;unreadCount:number;createdAt:Date;updatedAt:Date;messages:{content:string;type?:string}[]}): ConversationSummary => ({id:row.id,visitorLabel:row.visitorLabel,unreadCount:row.unreadCount,createdAt:row.createdAt.toISOString(),updatedAt:row.updatedAt.toISOString(),lastMessage:messagePreview(row.messages[0])});
 type UploadOwner={visitorId:string;adminId?:never}|{adminId:string;visitorId?:never};
 
-function clampSite(value: unknown): SiteDocument { return parse(siteDocumentSchema,value); }
+function clampSite(value: unknown): SiteDocument { return normalizeSiteDocument(value); }
 
 
 @Injectable()

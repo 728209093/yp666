@@ -81,7 +81,7 @@ test('发送成功后迟到的会话轮询不能隐藏新回复', async ({page})
   await expect(page.locator('.admin-messages')).toContainText('你好');
   await page.clock.fastForward(4000);
   const stale = await pending.promise;
-  await page.getByRole('textbox', {name: '回复内容'}).fill('刚发送的回复');
+  await page.getByRole('textbox', {name: '回复内容', exact: true}).fill('刚发送的回复');
   await page.getByRole('button', {name: '发送回复'}).click();
   await expect(page.locator('.admin-messages')).toContainText('刚发送的回复');
   const response = page.waitForResponse(r => r.url().endsWith('/api/admin/conversations/conversation-one'));

@@ -19,10 +19,15 @@ export default defineConfig({
     viewport: {width: 1440, height: 960},
     launchOptions: browserPath ? {executablePath: browserPath} : {},
   },
-  webServer: {
+  webServer: [{
     command: 'pnpm --filter @yp666/admin exec vite --host 127.0.0.1 --port 5274',
     url: 'http://127.0.0.1:5274',
     reuseExistingServer: false,
     timeout: 30000,
-  },
+  }, {
+    command: 'pnpm --filter @yp666/web exec vite --host 127.0.0.1 --port 5273',
+    url: 'http://127.0.0.1:5273',
+    reuseExistingServer: false,
+    timeout: 30000,
+  }],
 });

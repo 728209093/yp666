@@ -1,6 +1,7 @@
 import { BadRequestException } from '@nestjs/common';
 import { z } from 'zod';
 import sanitizeHtml from 'sanitize-html';
+import { richTextFontSizes } from '@yp666/shared';
 
 export const messageSchema=z.object({
   content:z.string().max(20000,'消息内容过长').optional().default(''),
@@ -10,16 +11,18 @@ export const messageSchema=z.object({
 });
 export type MessageInput=z.infer<typeof messageSchema>;
 const color=/^(?:#[a-f0-9]{3}(?:[a-f0-9]{3})?|rgb\(\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}\s*\)|(?:black|white|red|green|blue|orange|purple|gray|grey|yellow))$/i;
+const fontSize=new RegExp(`^(?:${richTextFontSizes.join('|')})px$`);
+const fontFamily=/^(?:Arial|Georgia|['"]?Times New Roman['"]?|['"]?Microsoft YaHei['"]?|sans-serif|serif)$/i;
 export function cleanRichText(html:string) {
   return sanitizeHtml(html,{
     allowedTags:['p','div','span','br','strong','b','em','i','u','s','ul','ol','li','a','blockquote','code'],
     allowedAttributes:{'*':['style'],a:['href','target','rel']},
-    allowedStyles:{'*':{'color':[color],'background-color':[color],'text-align':[/^(?:left|center|right)$/]}},
+    allowedStyles:{'*':{'color':[color],'background-color':[color],'font-size':[fontSize],'font-family':[fontFamily],'text-align':[/^(?:left|center|right)$/]}},
     allowedSchemes:['https','http','mailto'],
     allowProtocolRelative:false,
     transformTags:{
       a:(_tag,attributes)=>({tagName:'a',attribs:{href:attributes.href||'',target:'_blank',rel:'noopener noreferrer'}}),
-      font:(_tag,attributes)=>{const attribs:Record<string,string>={};if(color.test(attributes.color||''))attribs.style=`color:${attributes.color}`;return {tagName:'span',attribs};},
+      font:(_tag,attributes)=>{const styles:string[]=attributes.style?[attributes.style]:[];if(color.test(attributes.color||''))styles.push(`color:${attributes.color}`);if(fontFamily.test(attributes.face||''))styles.push(`font-family:${attributes.face}`);const size=({'1':12,'2':14,'3':16,'4':18,'5':24,'6':32,'7':36} as Record<string,number>)[attributes.size||''];if(size)styles.push(`font-size:${size}px`);const attribs:Record<string,string>={};if(styles.length)attribs.style=styles.join(';');return {tagName:'span',attribs};},
     },
   }).trim();
 }

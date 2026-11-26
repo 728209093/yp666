@@ -1,12 +1,15 @@
 <script setup lang="ts">
 import {computed, onBeforeUnmount, onMounted, ref, watch} from 'vue';
 import {ElMessage, ElMessageBox} from 'element-plus';
-import {ArrowDown, ArrowUp, Check, ChevronRight, CircleHelp, Eye, FileText, Image, Leaf, Link, Megaphone, Plus, RefreshCw, Save, Send, Settings2, ShieldCheck, Trash2} from 'lucide-vue-next';
+import {ArrowDown, ArrowUp, Check, ChevronRight, CircleHelp, Eye, FileText, Image, Leaf, Link, Megaphone, Plus, RefreshCw, Save, Send, Settings2, ShieldCheck, Trash2, Video} from 'lucide-vue-next';
 import {defaultDocument, siteDocumentSchema, type AdminContentResponse, type ContentBlock, type SiteDocument} from '@yp666/shared';
 import {api} from '../api';
 import {assetUrl, dateTime} from '../utils';
 import ImageInput from './ImageInput.vue';
 import MediaPreview from './MediaPreview.vue';
+import VideoInput from './VideoInput.vue';
+import RichTextEditor from './RichTextEditor.vue';
+import {plainToRichText, richTextPlain, safeRichText} from '../richtext';
 const props = defineProps<{section: string}>();
 const emit = defineEmits<{(e: 'dirty', value: boolean): void}>();
 const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
@@ -33,6 +36,8 @@ function validate() {
   if (!result.success) {const issue = result.error.issues[0]; ElMessage.warning(`请检查配置：${issue?.message || '填写内容不完整'}（${issue?.path.join('.') || ''}）`); return false;}
   const emptyImage = draft.value.blocks.find(block => block.enabled && block.type === 'image' && !block.imageUrl);
   if (emptyImage) {expanded.value = emptyImage.id; ElMessage.warning('请为已启用的图片模块选择图片，或暂时关闭该模块'); return false;}
+  const emptyVideo = draft.value.blocks.find(block => block.enabled && block.type === 'video' && !block.videoUrl);
+  if (emptyVideo) {expanded.value = emptyVideo.id; ElMessage.warning('请为已启用的视频模块选择视频，或暂时关闭该模块'); return false;}
   const emptyLink = draft.value.blocks.find(block => block.enabled && block.type === 'link' && !/^https?:\/\//i.test(block.url));
   if (emptyLink) {expanded.value = emptyLink.id; ElMessage.warning('请为已启用的链接模块填写完整的 http(s) 链接'); return false;}
   return true;
@@ -44,7 +49,9 @@ async function publish() {
   busy.value = true;
   try {if (dirty.value) apply(await api<AdminContentResponse>('/admin/content', {method: 'PUT', body: JSON.stringify({document: draft.value})})); apply(await api<AdminContentResponse>('/admin/content/publish', {method: 'POST'})); ElMessage.success('发布成功，前台内容已更新');} catch (e) {ElMessage.error((e as Error).message);} finally {busy.value = false;}
 }
-function addBlock(type: ContentBlock['type']) {const block: ContentBlock = {id: crypto.randomUUID(), type, title: '', content: '', imageUrl: '', buttonText: type === 'link' ? '了解更多' : '', url: '', enabled: true, sortOrder: draft.value.blocks.length}; draft.value.blocks.push(block); expanded.value = block.id;}
+function addBlock(type: ContentBlock['type']) {const block: ContentBlock = {id: crypto.randomUUID(), type, title: '', content: '', contentFormat: 'richtext', imageUrl: '', videoUrl: '', buttonText: type === 'link' ? '了解更多' : '', url: '', enabled: true, sortOrder: draft.value.blocks.length}; draft.value.blocks.push(block); expanded.value = block.id;}
+function editContent(block: ContentBlock, value: string) {block.content = value; block.contentFormat = 'richtext';}
+function editorContent(block: ContentBlock) {return block.contentFormat === 'richtext' ? block.content : plainToRichText(block.content);}
 function move(index: number, offset: number) {const target = index + offset; if (target < 0 || target >= draft.value.blocks.length) return; [draft.value.blocks[index], draft.value.blocks[target]] = [draft.value.blocks[target]!, draft.value.blocks[index]!]; draft.value.blocks.forEach((block, i) => block.sortOrder = i);}
 async function removeBlock(id: string) {try {await ElMessageBox.confirm('删除后保存并发布，前台将不再展示此模块。', '删除内容模块', {confirmButtonText: '删除', cancelButtonText: '保留', type: 'warning'}); draft.value.blocks = draft.value.blocks.filter(block => block.id !== id); draft.value.blocks.forEach((block, i) => block.sortOrder = i);} catch {}}
 function addFaq() {draft.value.faqs.push({id: crypto.randomUUID(), question: '', answer: '', enabled: true});}
@@ -100,11 +107,11 @@ onBeforeUnmount(() => {window.removeEventListener('beforeunload', beforeUnload);
 <div class="block-top">
 <button class="block-title" @click="expanded = expanded === block.id ? '' : block.id">
 <span class="block-type-icon">
-<component :is="block.type === 'image' ? Image : block.type === 'link' ? Link : FileText" :size="18"/>
+<component :is="block.type === 'image' ? Image : block.type === 'video' ? Video : block.type === 'link' ? Link : FileText" :size="18"/>
 </span>
 <div>
-<strong>{{block.title || (block.type === 'image' ? '图片模块' : block.type === 'link' ? '链接模块' : '文字模块')}}</strong>
-<small>{{block.type === 'image' ? '图片内容' : block.type === 'link' ? '跳转链接' : '纯文字'}}<span>·</span>模块 {{String(index + 1).padStart(2, '0')}}</small>
+<strong>{{block.title || (block.type === 'image' ? '图片模块' : block.type === 'video' ? '视频模块' : block.type === 'link' ? '链接模块' : '文字模块')}}</strong>
+<small>{{block.type === 'image' ? '图片内容' : block.type === 'video' ? '视频内容' : block.type === 'link' ? '跳转链接' : '富文本'}}<span>·</span>模块 {{String(index + 1).padStart(2, '0')}}</small>
 </div>
 <ChevronRight :size="16" :class="{expanded: expanded === block.id}"/>
 </button>
@@ -127,11 +134,12 @@ onBeforeUnmount(() => {window.removeEventListener('beforeunload', beforeUnload);
 <el-input v-model="block.title" maxlength="100" show-word-limit placeholder="给这一段内容起个标题"/>
 </el-form-item>
 <el-form-item :label="block.type === 'image' ? '图片说明' : '正文内容'">
-<el-input v-model="block.content" type="textarea" :rows="4" maxlength="4000" show-word-limit placeholder="写下你想告诉访客的内容，支持换行"/>
+<RichTextEditor :model-value="editorContent(block)" label="正文内容" :send-on-enter="false" @update:model-value="editContent(block, $event)"/>
 </el-form-item>
 <el-form-item v-if="block.type === 'image'" label="展示图片">
 <ImageInput v-model="block.imageUrl" label="图片 URL，或点击上传图片"/>
 </el-form-item>
+<el-form-item v-if="block.type === 'video'" label="展示视频"><VideoInput v-model="block.videoUrl"/></el-form-item>
 <div v-if="block.type === 'link'">
 <el-form-item label="按钮文字">
 <el-input v-model="block.buttonText" maxlength="40" placeholder="例如：了解更多"/>
@@ -143,7 +151,7 @@ onBeforeUnmount(() => {window.removeEventListener('beforeunload', beforeUnload);
 </div>
 </el-form>
 </div>
-<div v-if="expanded !== block.id && block.content" class="block-summary">{{block.content}}</div>
+<div v-if="expanded !== block.id && block.content" class="block-summary">{{block.contentFormat === 'richtext' ? richTextPlain(block.content) : block.content}}</div>
 </article>
           <div class="add-block-bar">
 <span>添加内容</span>
@@ -151,6 +159,7 @@ onBeforeUnmount(() => {window.removeEventListener('beforeunload', beforeUnload);
 <FileText :size="15"/>文字</el-button>
 <el-button @click="addBlock('image')">
 <Image :size="15"/>图片</el-button>
+<el-button @click="addBlock('video')"><Video :size="15"/>视频</el-button>
 <el-button @click="addBlock('link')">
 <Link :size="15"/>链接按钮</el-button>
 </div>
@@ -164,7 +173,7 @@ onBeforeUnmount(() => {window.removeEventListener('beforeunload', beforeUnload);
 <p>一段简洁的文字，一张恰到好处的图片，就能让访客多了解你一点。</p>
 <ul>
 <li>使用短段落，手机阅读更轻松</li>
-<li>图片建议使用 4:3 或 16:9 比例</li>
+<li>图片按原始比例完整展示</li>
 <li>通过开关可暂时隐藏模块</li>
 <li>保存草稿不会立即影响前台</li>
 </ul>
@@ -386,8 +395,9 @@ onBeforeUnmount(() => {window.removeEventListener('beforeunload', beforeUnload);
 <div class="preview-message-row"><img :src="assetUrl(draft.settings.avatarUrl || '/assets/avatar.svg')" alt="客服头像" :class="`avatar-${draft.settings.avatarShape}`"/><div class="preview-bubble">{{draft.settings.welcomeMessage}}</div></div>
 <article v-for="block in draft.blocks.filter(b => b.enabled)" :key="block.id" class="preview-block">
 <button v-if="block.type === 'image' && block.imageUrl" type="button" class="preview-block-image" aria-label="查看草稿图片大图" @click="imagePreview = assetUrl(block.imageUrl)"><img :src="assetUrl(block.imageUrl)" :alt="block.title"/></button>
+<video v-if="block.type === 'video' && block.videoUrl" class="preview-block-video" :src="assetUrl(block.videoUrl)" controls playsinline preload="metadata" :aria-label="block.title || '内容视频预览'"></video>
 <h4 v-if="block.title">{{block.title}}</h4>
-<p>{{block.content}}</p>
+<div v-if="block.contentFormat === 'richtext'" class="safe-richtext" v-html="safeRichText(block.content)"></div><p v-else>{{block.content}}</p>
 <span v-if="block.type === 'link'" class="preview-link">{{block.buttonText || '了解更多'}}<ChevronRight :size="13"/>
 </span>
 </article>
