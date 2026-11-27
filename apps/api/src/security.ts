@@ -26,29 +26,51 @@ export function originAllowed(origin: string | undefined, fetchSite?: string) {
 
 export class WindowLimiter {
   private entries = new Map<string,{count:number; reset:number}>();
+  private nextSweep = 0;
+  constructor(private readonly maximumEntries = 20_000) {}
   take(key: string, limit: number, milliseconds: number, now=Date.now()) {
-    if (this.entries.size > 10000) for (const [k,v] of this.entries) if (v.reset <= now) this.entries.delete(k);
     const current = this.entries.get(key);
-    if (!current || current.reset <= now) { this.entries.set(key,{count:1,reset:now+milliseconds}); return true; }
+    if (!current) {
+      if (now >= this.nextSweep) {
+        for (const [k,v] of this.entries) if (v.reset <= now) this.entries.delete(k);
+        this.nextSweep = now + 30_000;
+      }
+      // Never evict live limits: changing IPs must not reset an existing limit.
+      if (this.entries.size >= this.maximumEntries) return false;
+    }
+    if (!current || current.reset <= now) {
+      this.entries.set(key,{count:1,reset:now+milliseconds});
+      this.nextSweep=Math.min(this.nextSweep,now+milliseconds);
+      return true;
+    }
     current.count++;
     return current.count <= limit;
   }
 }
 
+export function requestRatePolicy(method: string, path: string) {
+  // Express routes accept different casing and an optional trailing slash.
+  const route = path.toLowerCase().replace(/\/+$/, '');
+  if (route === '/admin/auth/login') return {category:'login', limit:12, milliseconds:60_000};
+  if (route === '/admin/auth/password') return {category:'password', limit:5, milliseconds:15*60_000};
+  if (route.startsWith('/verification/')) return {category:'verification', limit:40, milliseconds:60_000};
+  if (route.endsWith('/uploads')) return {category:'upload', limit:20, milliseconds:60_000};
+  if (method.toUpperCase()==='POST' && /\/messages$/.test(route)) return {category:'send', limit:40, milliseconds:60_000};
+  return {category:'all', limit:600, milliseconds:60_000};
+}
+
 export function securityMiddleware() {
   const limits = new WindowLimiter();
   return (request: Request, response: Response, next: NextFunction) => {
+    response.setHeader('Cache-Control','no-store');
     if (!['GET','HEAD','OPTIONS'].includes(request.method) && !originAllowed(request.get('origin'),request.get('sec-fetch-site'))) {
       response.status(403).json({message:'请求来源不被允许'}); return;
     }
-    const route = request.path;
     const ip = request.ip || request.socket.remoteAddress || 'unknown';
-    const cap = route.includes('/auth/login') ? 12 : route.includes('/verification/') ? 40 : route.includes('/uploads') ? 20 : request.method==='POST' && route.includes('/messages') ? 40 : 600;
-    const category=route.includes('/auth/login')?'login':route.includes('/verification/')?'verification':route.includes('/uploads')?'upload':request.method==='POST'&&route.includes('/messages')?'send':'all';
-    if (!limits.take(`${ip}:${category}`,cap,60000)) {
-      response.setHeader('Retry-After','60'); response.status(429).json({message:'操作太频繁，请稍后再试'}); return;
+    const policy=requestRatePolicy(request.method,request.path);
+    if (!limits.take(`${ip}:${policy.category}`,policy.limit,policy.milliseconds)) {
+      response.setHeader('Retry-After',String(Math.ceil(policy.milliseconds/1000))); response.status(429).json({message:'操作太频繁，请稍后再试'}); return;
     }
-    response.setHeader('Cache-Control','no-store');
     next();
   };
 }

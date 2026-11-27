@@ -1,7 +1,7 @@
-import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
+import { databaseTlsOptions } from '../scripts/mysql-tls.mjs';
 
 export const projectRoot = fileURLToPath(new URL('../../../', import.meta.url));
 dotenv.config({path: resolve(projectRoot, '.env.local'), quiet: true});
@@ -22,7 +22,7 @@ export function mysqlOptions() {
   return {
     host: e.MYSQL_HOST!, port: Number(e.MYSQL_PORT || 3306), database: e.MYSQL_DATABASE!,
     user: e.MYSQL_USER!, password: e.MYSQL_PASSWORD!, connectionLimit: 5, connectTimeout: 15000,
-    ssl: e.MYSQL_SSL_CA ? {ca: readFileSync(resolve(projectRoot,e.MYSQL_SSL_CA)), rejectUnauthorized: true, checkServerIdentity: () => undefined} : undefined,
+    ssl: databaseTlsOptions(e, projectRoot),
   };
 }
 

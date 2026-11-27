@@ -27,16 +27,18 @@ async function mockWeb(page: Page, media = fixture) {
       throw new Error(`Unexpected mocked API request: ${path}`);
     }
   });
-  await page.route('**/uploads/centered.webm', route => route.fulfill({contentType: 'video/webm', body: media}));
+  await page.route('**/uploads/centered*.webm', route => route.fulfill({contentType: 'video/webm', body: media}));
   await page.goto('http://127.0.0.1:5273');
   await expect(page.locator('.loading-screen')).toBeHidden();
+  return {setPublishedSource(src: string) {document.blocks[0].videoUrl = src;}};
 }
 
-async function expectCenter(player: Locator) {
+async function expectCenter(player: Locator, controls = false) {
   await player.scrollIntoViewIfNeeded();
   const video = player.locator('video');
   await expect.poll(() => video.evaluate(node => (node as HTMLVideoElement).readyState)).toBeGreaterThan(0);
   const button = player.getByRole('button');
+  await expect(button).toHaveCount(1);
   await expect(button).toBeVisible();
   const frame = (await video.boundingBox())!;
   const play = (await button.boundingBox())!;
@@ -45,7 +47,17 @@ async function expectCenter(player: Locator) {
   expect(await video.evaluate(node => {
     const video = node as HTMLVideoElement;
     return {paused: video.paused, autoplay: video.autoplay, controls: video.controls, playsInline: video.playsInline};
-  })).toEqual({paused: true, autoplay: false, controls: true, playsInline: true});
+  })).toEqual({paused: true, autoplay: false, controls, playsInline: true});
+  if (controls) {
+    // Native shadow controls cannot be queried as DOM buttons. Check the suppression rules
+    // while the real native controls remain enabled for seeking in the paused state.
+    const hiddenNativeOverlays = await video.evaluate(() => {
+      const rules = [...document.styleSheets].flatMap(sheet => [...sheet.cssRules]);
+      return ['::-webkit-media-controls-start-playback-button', '::-webkit-media-controls-overlay-play-button'].every(selector =>
+        rules.some(rule => rule instanceof CSSStyleRule && rule.selectorText.includes(selector) && rule.style.display === 'none'));
+    });
+    expect(hiddenNativeOverlays).toBe(true);
+  }
 }
 
 for (const viewport of [{width: 390, height: 844}, {width: 1440, height: 960}]) {
@@ -61,16 +73,19 @@ for (const viewport of [{width: 390, height: 844}, {width: 1440, height: 960}]) 
     await video.evaluate(node => {(node as HTMLVideoElement).loop = true;});
     await player.getByRole('button').click();
     await expect.poll(() => video.evaluate(node => (node as HTMLVideoElement).paused)).toBe(false);
+    await expect.poll(() => video.evaluate(node => (node as HTMLVideoElement).controls)).toBe(true);
     await expect(player.getByRole('button')).toHaveCount(0);
     await video.evaluate(node => (node as HTMLVideoElement).pause());
-    await expectCenter(player);
+    await expectCenter(player, true);
+    await video.evaluate(node => {(node as HTMLVideoElement).currentTime = 0;});
+    await expect.poll(() => video.evaluate(node => (node as HTMLVideoElement).currentTime)).toBe(0);
     await page.screenshot({path: `test-results/video-centered-${viewport.width}.png`, fullPage: true});
     await player.getByRole('button').click();
     await expect.poll(() => video.evaluate(node => (node as HTMLVideoElement).paused)).toBe(false);
     await expect(player.getByRole('button')).toHaveCount(0);
     await video.evaluate(node => {(node as HTMLVideoElement).loop = false;});
     await expect.poll(() => video.evaluate(node => (node as HTMLVideoElement).ended)).toBe(true);
-    await expectCenter(player);
+    await expectCenter(player, true);
   });
 }
 
@@ -96,7 +111,10 @@ test('后台聊天视频显示居中播放按钮并等待点击', async ({page})
   await video.evaluate(node => {(node as HTMLVideoElement).loop = true;});
   await player.getByRole('button').click();
   await expect.poll(() => video.evaluate(node => (node as HTMLVideoElement).paused)).toBe(false);
+  await expect.poll(() => video.evaluate(node => (node as HTMLVideoElement).controls)).toBe(true);
   await expect(player.getByRole('button')).toHaveCount(0);
+  await video.evaluate(node => (node as HTMLVideoElement).pause());
+  await expectCenter(player, true);
 });
 
 test('播放失败保留中心按钮，允许再次点击重试', async ({page}) => {
@@ -109,6 +127,15 @@ test('播放失败保留中心按钮，允许再次点击重试', async ({page})
   await player.getByRole('button').click();
   await expect(player.getByRole('status')).toHaveText('视频暂时无法播放，请重试');
   await expectCenter(player);
+  await video.evaluate(node => {
+    delete (node as unknown as {play?: unknown}).play;
+    (node as HTMLVideoElement).loop = true;
+  });
+  await player.getByRole('button').click();
+  await expect.poll(() => video.evaluate(node => (node as HTMLVideoElement).paused)).toBe(false);
+  await expect.poll(() => video.evaluate(node => (node as HTMLVideoElement).controls)).toBe(true);
+  await expect(player.getByRole('button')).toHaveCount(0);
+  await expect(player.getByRole('status')).toHaveCount(0);
 });
 
 test('竖屏视频保持完整画面，播放按钮仍在中心', async ({page}) => {
@@ -121,4 +148,20 @@ test('竖屏视频保持完整画面，播放按钮仍在中心', async ({page})
       return {portrait: video.videoHeight > video.videoWidth, fit: getComputedStyle(video).objectFit};
     })).toEqual({portrait: true, fit: 'contain'});
   }
+});
+
+test('发布视频替换来源后恢复单个播放入口且不会自动播放', async ({page}) => {
+  await page.clock.install({time: new Date('2026-11-27T04:00:00Z')});
+  const content = await mockWeb(page);
+  const player = page.locator('.video-player.content-card-video');
+  const video = player.locator('video');
+  await expectCenter(player);
+  await video.evaluate(node => {(node as HTMLVideoElement).loop = true;});
+  await player.getByRole('button').click();
+  await expect.poll(() => video.evaluate(node => (node as HTMLVideoElement).controls)).toBe(true);
+  content.setPublishedSource('/uploads/centered-replacement.webm');
+  await page.clock.runFor(16000);
+  await expect(video).toHaveAttribute('src', '/uploads/centered-replacement.webm');
+  await expectCenter(player);
+  await expect(player.getByRole('status')).toHaveCount(0);
 });

@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily encrypted YP666 backup
+
+[Timer]
+OnCalendar=*-*-* 03:15:00 Asia/Shanghai
+RandomizedDelaySec=20min
+Persistent=true
+Unit=yp666-backup.service
+
+[Install]
+WantedBy=timers.target

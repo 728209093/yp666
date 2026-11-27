@@ -9,6 +9,7 @@ import { captchaProvider } from './config.js';
 import { messageSchema } from './chat-content.js';
 import { maximumUploadBytes } from './media.js';
 import { parseVisitQuery, visitMetadata } from './visits.js';
+import { AuthCapacityInterceptor, UploadCapacityInterceptor } from './request-capacity.js';
 
 const loginSchema=z.object({username:z.string().trim().min(1).max(64),password:z.string().min(1).max(128)});
 const passwordSchema=z.object({currentPassword:z.string().min(1).max(128),newPassword:z.string().min(12,'新密码至少 12 位').max(128)});
@@ -113,7 +114,7 @@ export class PublicController {
   @Post('visitor/uploads')
   @HttpCode(200)
   @UseGuards(VerifiedUploadGuard)
-  @UseInterceptors(FileInterceptor('file',{limits:{fileSize:maximumUploadBytes,files:1}}))
+  @UseInterceptors(UploadCapacityInterceptor,FileInterceptor('file',{limits:{fileSize:maximumUploadBytes,files:1,fields:4,parts:6,fieldSize:8192}}))
   async upload(@UploadedFile()file:Express.Multer.File|undefined,@Req()request:Request,@Res({passthrough:true})response:Response) {
     const record=await visitor(this.app,request,response);
     const {published}=await this.app.site();
@@ -129,6 +130,7 @@ export class AuthController {
 
   @Post('login')
   @HttpCode(200)
+  @UseInterceptors(AuthCapacityInterceptor)
   async login(@Body()body:unknown,@Res({passthrough:true})response:Response) {
     const input=parse(loginSchema,body);
     const result=await this.app.login(input.username,input.password);
@@ -154,6 +156,7 @@ export class AuthController {
   @Post('password')
   @UseGuards(AdminGuard)
   @HttpCode(200)
+  @UseInterceptors(AuthCapacityInterceptor)
   async password(@Body()body:unknown,@Req()request:Request,@Res({passthrough:true})response:Response) {
     const input=parse(passwordSchema,body);
     const result=await this.app.adminFromToken(request.cookies?.[adminCookie]);
@@ -186,7 +189,7 @@ export class AdminController {
   @HttpCode(200)
   reply(@Param('id')id:string,@Body()body:unknown,@Req()request:Request) {const input=parse(messageSchema,body);return this.app.reply(id,input,(request as Request & {adminSession:{admin:{id:string}}}).adminSession.admin.id);}
   @Post('uploads')
-  @UseInterceptors(FileInterceptor('file',{limits:{fileSize:maximumUploadBytes,files:1}}))
+  @UseInterceptors(UploadCapacityInterceptor,FileInterceptor('file',{limits:{fileSize:maximumUploadBytes,files:1,fields:4,parts:6,fieldSize:8192}}))
   upload(@UploadedFile()file:Express.Multer.File|undefined,@Req()request:Request) {
     if(!file)throw new BadRequestException('请选择图片或视频文件');
     return this.app.upload(file.buffer,file.originalname,{adminId:(request as Request & {adminSession:{admin:{id:string}}}).adminSession.admin.id});

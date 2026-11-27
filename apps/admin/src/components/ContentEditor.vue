@@ -208,6 +208,10 @@ onBeforeUnmount(() => {window.removeEventListener('beforeunload', beforeUnload);
 </div>
 </el-form-item>
 </div>
+<el-form-item label="客服名称字号" for="service-name-font-size">
+<el-input-number id="service-name-font-size" v-model="draft.settings.serviceNameFontSize" :min="12" :max="18" :step="1" :precision="0" step-strictly controls-position="right" aria-label="客服名称字号"/>
+<span class="field-hint inline-hint">12–18 px，默认 14 px，适用于聊天中的客服名称。</span>
+</el-form-item>
 <el-form-item label="页面主标题">
 <el-input v-model="draft.settings.title" maxlength="60" show-word-limit/>
 </el-form-item>
@@ -234,6 +238,10 @@ onBeforeUnmount(() => {window.removeEventListener('beforeunload', beforeUnload);
 <el-form-item label="浏览器标签页标题">
 <el-input v-model="draft.settings.pageTitle" maxlength="80" show-word-limit placeholder="例如：在线客服"/>
 <p class="field-hint">进入聊天窗口后的网页标题，发布后会自动同步。</p>
+</el-form-item>
+<el-form-item label="浏览器标签页图标" class="favicon-setting">
+<ImageInput v-model="draft.settings.faviconUrl" label="标签页图标图片 URL"/>
+<p class="field-hint">建议上传正方形图片，留空使用默认图标。</p>
 </el-form-item>
 <el-form-item label="加载提示文字">
 <el-input v-model="draft.settings.loadingText" maxlength="80" show-word-limit placeholder="正在加载，请稍候…"/>
@@ -394,7 +402,7 @@ onBeforeUnmount(() => {window.removeEventListener('beforeunload', beforeUnload);
 <h3>{{draft.settings.introTitle}}</h3>
 <p>{{draft.settings.introText}}</p>
 </div>
-<div class="preview-message-row"><img :src="assetUrl(draft.settings.avatarUrl || '/assets/avatar.svg')" alt="客服头像" :class="`avatar-${draft.settings.avatarShape}`"/><div class="preview-bubble">{{draft.settings.welcomeMessage}}</div></div>
+<div class="preview-message-row"><img :src="assetUrl(draft.settings.avatarUrl || '/assets/avatar.svg')" alt="客服头像" :class="`avatar-${draft.settings.avatarShape}`"/><div class="preview-message-body"><span class="preview-service-name" :style="{fontSize: `${Math.min(18, Math.max(12, draft.settings.serviceNameFontSize || 14))}px`}">{{draft.settings.brandName}} · 服务助手</span><div class="preview-bubble">{{draft.settings.welcomeMessage}}</div></div></div>
 <article v-for="block in draft.blocks.filter(b => b.enabled)" :key="block.id" class="preview-block">
 <button v-if="block.type === 'image' && block.imageUrl" type="button" class="preview-block-image" aria-label="查看草稿图片大图" @click="imagePreview = assetUrl(block.imageUrl)"><img :src="assetUrl(block.imageUrl)" :alt="block.title"/></button>
 <VideoPlayer v-if="block.type === 'video' && block.videoUrl" class="preview-block-video" :src="assetUrl(block.videoUrl)" :label="block.title || '内容视频预览'"/>
@@ -413,3 +421,7 @@ onBeforeUnmount(() => {window.removeEventListener('beforeunload', beforeUnload);
 <MediaPreview :src="imagePreview" @close="imagePreview = ''"/>
   </section>
 </template>
+
+<style scoped>
+.preview-message-row{display:flex;align-items:flex-start;gap:8px}.preview-message-row>img{width:30px;height:30px;flex-shrink:0;object-fit:cover;margin-top:27px}.preview-message-body{flex:1;min-width:0}.preview-service-name{display:block;line-height:1.5;font-weight:600;color:#334155;overflow-wrap:anywhere;margin-bottom:6px}.preview-message-body .preview-bubble{margin:0 0 15px;color:#334155}.favicon-setting :deep(.field-hint){line-height:1.8}
+</style>

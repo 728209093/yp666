@@ -1,0 +1,109 @@
+name: Security and regression checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '17 2 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-checks-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  CI: 'true'
+  NODE_ENV: test
+  CAPTCHA_PROVIDER: local
+  APP_ORIGINS: http://127.0.0.1:5173,http://127.0.0.1:5174
+
+jobs:
+  api-and-dependencies:
+    name: API, types and dependency audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Set up pnpm
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 11.5.2
+          run_install: false
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24'
+          cache: pnpm
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Install video validation tool
+        run: |
+          if ! command -v ffprobe >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install --no-install-recommends --yes ffmpeg
+          fi
+          echo "FFPROBE_PATH=$(command -v ffprobe)" >> "$GITHUB_ENV"
+      - name: Build shared schemas
+        run: pnpm --filter @yp666/shared build
+      - name: Generate Prisma client without connecting to a database
+        run: pnpm db:generate
+        env:
+          DATABASE_URL: mysql://generate:generate@127.0.0.1:3306/yp666_ci_unused
+      - name: Check types
+        run: pnpm typecheck
+      - name: Run API unit tests with mocked persistence
+        run: pnpm test
+      - name: Check deployment paths and encrypted backup tooling
+        run: node --test deploy/tests/*.test.mjs
+      - name: Audit production dependencies
+        run: pnpm audit --prod --audit-level=moderate
+
+  browser-ui:
+    name: Browser UI with mocked APIs
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Set up pnpm
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 11.5.2
+          run_install: false
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24'
+          cache: pnpm
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Build shared schemas
+        run: pnpm --filter @yp666/shared build
+      - name: Install Chromium and system dependencies
+        run: pnpm exec playwright install --with-deps chromium
+      - name: Run UI regressions against mocked APIs
+        run: pnpm test:ui
+      - name: Save failure evidence
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: browser-ui-failure
+          path: |
+            test-results/
+            playwright-report/
+          if-no-files-found: ignore
+          retention-days: 7

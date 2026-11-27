@@ -6,6 +6,7 @@ export const richTextFontFamilies = ['Arial', 'Georgia', 'Times New Roman', 'Mic
 const safeUrl = z.string().max(2000).refine(value => !value || /^https?:\/\//i.test(value) || /^\/(?:assets|uploads)\/[\w./-]+$/.test(value), '请输入 http(s) 链接或本站资源路径');
 export const settingsSchema = z.object({
   brandName: z.string().trim().min(1).max(30),
+  serviceNameFontSize: z.number().int().min(12).max(18).default(14),
   title: z.string().trim().min(1).max(60),
   subtitle: z.string().max(160),
   avatarUrl: safeUrl,
@@ -13,6 +14,7 @@ export const settingsSchema = z.object({
   verificationBackgroundUrl: safeUrl.default(''),
   chatBackgroundUrl: safeUrl.default(''),
   pageTitle: z.string().trim().min(1).max(80).default('在线客服'),
+  faviconUrl: safeUrl.default(''),
   avatarShape: z.enum(['circle', 'rounded', 'square']).default('rounded'),
   loadingText: z.string().trim().min(1).max(80).default('正在加载，请稍候…'),
   notificationSound: z.boolean().default(true),
@@ -53,7 +55,7 @@ export type ContentBlock = z.infer<typeof blockSchema>;
 export type FaqItem = z.infer<typeof faqSchema>;
 export type SiteDocument = z.infer<typeof siteDocumentSchema>;
 export interface BootstrapResponse {
-  site: Pick<SiteSettings, 'brandName' | 'title' | 'subtitle' | 'avatarUrl' | 'primaryColor' | 'verificationEnabled' | 'verificationBackgroundUrl' | 'pageTitle' | 'loadingText' | 'avatarShape'>;
+  site: Pick<SiteSettings, 'brandName' | 'serviceNameFontSize' | 'title' | 'subtitle' | 'avatarUrl' | 'primaryColor' | 'verificationEnabled' | 'verificationBackgroundUrl' | 'pageTitle' | 'faviconUrl' | 'loadingText' | 'avatarShape'>;
   verificationRequired: boolean;
   verified: boolean;
   captchaProvider: 'local' | 'slider' | 'turnstile';
@@ -87,9 +89,9 @@ export interface VisitDetail {
 export interface VisitListResponse {items: VisitDetail[]; total: number; page: number; pageSize: number; totalPages: number}
 export const defaultDocument: SiteDocument = {
   settings: {
-    brandName: '青屿', title: '让每一次相遇，都更近一点。', subtitle: '一个安静、真诚的在线会客厅。\n关于我们的服务，你想了解的，都可以在这里聊聊。',
+    brandName: '青屿', serviceNameFontSize: 14, title: '让每一次相遇，都更近一点。', subtitle: '一个安静、真诚的在线会客厅。\n关于我们的服务，你想了解的，都可以在这里聊聊。',
     avatarUrl: '/assets/avatar.svg', backgroundUrl: '', announcement: '欢迎来到青屿。请认准本站信息，我们不会索取你的验证码或账户密码。', primaryColor: '#547861',
-    verificationBackgroundUrl: '', chatBackgroundUrl: '', pageTitle: '在线客服', avatarShape: 'rounded', loadingText: '正在加载，请稍候…', notificationSound: true, announcementSpeed: 24,
+    verificationBackgroundUrl: '', chatBackgroundUrl: '', pageTitle: '在线客服', faviconUrl: '', avatarShape: 'rounded', loadingText: '正在加载，请稍候…', notificationSound: true, announcementSpeed: 24,
     introTitle: '很高兴，在这里遇见你', introText: '把想了解的事，慢慢说给我们听。\n服务介绍、使用帮助，或只是一个小小的疑问，我们都在这里。',
     welcomeMessage: '你好，欢迎来到青屿 🌿\n我是你的服务助手。你可以先看看下面的介绍，也可以直接留言，我们会认真回复。', verificationEnabled: true, verificationTtlMinutes: 60,
     contactHint: '发送你的问题，开启一段轻松的对话',

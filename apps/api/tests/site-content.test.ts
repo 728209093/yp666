@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import {defaultDocument} from '@yp666/shared';
 import {normalizeSiteDocument} from '../src/site-content.js';
 import {cleanRichText} from '../src/chat-content.js';
+import {AppService} from '../src/app.service.js';
+import type {DatabaseService} from '../src/database.service.js';
 
 test('legacy content remains literal and new document formatting is explicitly marked', () => {
   const source = JSON.parse(JSON.stringify(defaultDocument));
@@ -46,4 +48,52 @@ test('plain content keeps its length limit while rich documents may include form
   assert.throws(() => normalizeSiteDocument(source));
   source.blocks[0].contentFormat = 'richtext';
   assert.doesNotThrow(() => normalizeSiteDocument(source));
+});
+
+test('legacy site settings receive appearance defaults without changing existing content', () => {
+  const source = JSON.parse(JSON.stringify(defaultDocument));
+  delete source.settings.serviceNameFontSize;
+  delete source.settings.faviconUrl;
+  source.settings.brandName = '现有客服';
+  const normalized = normalizeSiteDocument(source);
+  assert.equal(normalized.settings.serviceNameFontSize, 14);
+  assert.equal(normalized.settings.faviconUrl, '');
+  assert.equal(normalized.settings.brandName, '现有客服');
+  assert.deepEqual(normalized.blocks, source.blocks);
+  assert.deepEqual(normalized.faqs, source.faqs);
+});
+
+test('customer service name size accepts only integers from 12 to 18 pixels', () => {
+  const source = JSON.parse(JSON.stringify(defaultDocument));
+  for (const size of [12, 14, 18]) {
+    source.settings.serviceNameFontSize = size;
+    assert.equal(normalizeSiteDocument(source).settings.serviceNameFontSize, size);
+  }
+  for (const size of [11, 19, 14.5, '16', null]) {
+    source.settings.serviceNameFontSize = size;
+    assert.throws(() => normalizeSiteDocument(source));
+  }
+});
+
+test('favicon settings retain safe image resource URLs and reject executable or local protocols', () => {
+  const source = JSON.parse(JSON.stringify(defaultDocument));
+  for (const url of ['', '/uploads/site-icon.webp', '/assets/site-icon.svg', 'https://cdn.example/icon.png', 'http://cdn.example/icon.png']) {
+    source.settings.faviconUrl = url;
+    assert.equal(normalizeSiteDocument(source).settings.faviconUrl, url);
+  }
+  for (const url of ['javascript:alert(1)', 'data:text/html,<script>alert(1)</script>', 'file:///tmp/icon.png', '//example.com/icon.png']) {
+    source.settings.faviconUrl = url;
+    assert.throws(() => normalizeSiteDocument(source));
+  }
+});
+
+test('bootstrap exposes published favicon and bounded name size before visitor verification', async () => {
+  const document = structuredClone(defaultDocument);
+  document.settings.serviceNameFontSize = 16;
+  document.settings.faviconUrl = '/uploads/published-site-icon.webp';
+  const service = new AppService({} as DatabaseService);
+  const result = await service.bootstrap({id: 'test-visitor', verifiedUntil: null}, document);
+  assert.equal(result.verificationRequired, true);
+  assert.equal(result.site.serviceNameFontSize, 16);
+  assert.equal(result.site.faviconUrl, '/uploads/published-site-icon.webp');
 });

@@ -1,0 +1,30 @@
+[Unit]
+Description=Encrypted YP666 database and media backup
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+WorkingDirectory=/opt/yp666/current
+EnvironmentFile=/opt/yp666/shared/.env.local
+Environment=PATH=/opt/yp666/runtime/bin:/usr/local/bin:/usr/bin:/bin
+Environment=BACKUP_RECIPIENT_CERT=/etc/yp666/backup-recipient.pem
+Environment=BACKUP_OUTPUT_DIR=/opt/yp666/backups/encrypted
+Environment=BACKUP_RETENTION_COUNT=30
+ExecStart=/opt/yp666/runtime/bin/node /opt/yp666/current/deploy/backup-project.mjs
+UMask=0077
+TimeoutStartSec=30min
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+ReadWritePaths=/opt/yp666/backups/encrypted
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+SyslogIdentifier=yp666-backup

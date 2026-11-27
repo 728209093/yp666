@@ -15,7 +15,7 @@ import { allowedOrigins, captchaProvider, uploadDirectory } from './config.js';
 import { challengeIsValid, hashToken, newToken, parse, shanghaiDate } from './security.js';
 import { renderSliderPuzzle } from './puzzle.js';
 import { normalizeMessage, richTextPlain, type MessageInput } from './chat-content.js';
-import { decodeUpload } from './media.js';
+import { assertUploadStorage, decodeUpload } from './media.js';
 import { assertNewPassword } from './password.js';
 import { normalizeSiteDocument } from './site-content.js';
 import { type VisitMetadata, type VisitQuery } from './visits.js';
@@ -106,7 +106,7 @@ export class AppService implements OnApplicationBootstrap {
     const enabled=document.settings.verificationEnabled;
     const verified=Boolean(visitor.verifiedUntil&&visitor.verifiedUntil.getTime()>Date.now());
     return {
-      site:{brandName:document.settings.brandName,title:document.settings.title,subtitle:document.settings.subtitle,avatarUrl:document.settings.avatarUrl,primaryColor:document.settings.primaryColor,verificationEnabled:enabled,verificationBackgroundUrl:document.settings.verificationBackgroundUrl,pageTitle:document.settings.pageTitle,loadingText:document.settings.loadingText,avatarShape:document.settings.avatarShape},
+      site:{brandName:document.settings.brandName,serviceNameFontSize:document.settings.serviceNameFontSize,title:document.settings.title,subtitle:document.settings.subtitle,avatarUrl:document.settings.avatarUrl,primaryColor:document.settings.primaryColor,verificationEnabled:enabled,verificationBackgroundUrl:document.settings.verificationBackgroundUrl,pageTitle:document.settings.pageTitle,faviconUrl:document.settings.faviconUrl,loadingText:document.settings.loadingText,avatarShape:document.settings.avatarShape},
       verificationRequired:enabled&&!verified,verified:!enabled||verified,captchaProvider,
       ...(captchaProvider==='turnstile'?{turnstileSiteKey:process.env.TURNSTILE_SITE_KEY}:{}),
     };
@@ -274,8 +274,9 @@ export class AppService implements OnApplicationBootstrap {
   }
 
   async upload(buffer:Buffer,originalName:string,owner:UploadOwner) {
-    const media=await decodeUpload(buffer,originalName);
     await mkdir(uploadDirectory,{recursive:true});
+    await assertUploadStorage(uploadDirectory,buffer.length);
+    const media=await decodeUpload(buffer,originalName);
     const filename=`${randomUUID()}.${media.extension}`;
     const url=`/uploads/${filename}`;
     const fileName=originalName.replace(/[\\/\u0000-\u001f\u007f]/g,'_').slice(0,160)||filename;

@@ -1,15 +1,36 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, statfs, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { extname, join } from 'node:path';
 import { BadRequestException, ServiceUnavailableException } from '@nestjs/common';
 import { fileTypeFromBuffer } from 'file-type';
 import sharp from 'sharp';
+import { CapacityGate } from './capacity.js';
 
 const execute=promisify(execFile);
 export const maximumUploadBytes=25*1024*1024;
+const processing=new CapacityGate(2,2);
+export const minimumUploadFreeBytes=1024n*1024n*1024n;
+type StorageStats={bavail:bigint;bsize:bigint};
+
+export async function assertUploadStorage(directory:string,incomingBytes:number,readStats:(directory:string)=>Promise<StorageStats>=directory=>statfs(directory,{bigint:true})) {
+  let stats:StorageStats;
+  try{stats=await readStats(directory);}
+  catch{throw new ServiceUnavailableException('暂时无法检查存储空间，请稍后重试');}
+  if(stats.bavail*stats.bsize<minimumUploadFreeBytes+BigInt(incomingBytes)){
+    throw new ServiceUnavailableException('存储空间不足，暂时无法上传文件，请联系管理员');
+  }
+}
+
 export async function decodeUpload(buffer:Buffer,originalName:string) {
+  const release=processing.acquire([]);
+  if(!release)throw new ServiceUnavailableException('媒体处理任务较多，请稍后重试');
+  try{return await decodeMediaUpload(buffer,originalName);}
+  finally{release();}
+}
+
+async function decodeMediaUpload(buffer:Buffer,originalName:string) {
   if(!buffer?.length||buffer.length>maximumUploadBytes)throw new BadRequestException('文件大小上限为 25 MB');
   let kind:Awaited<ReturnType<typeof fileTypeFromBuffer>>;
   try {kind=await fileTypeFromBuffer(buffer);} catch {throw new BadRequestException('文件格式无效');}

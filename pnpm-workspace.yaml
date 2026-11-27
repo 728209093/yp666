@@ -1,6 +1,10 @@
 packages:
   - apps/*
   - packages/*
+overrides:
+  '@prisma/adapter-mariadb>mariadb': '3.5.5'
+  '@prisma/config>effect': '3.22.1'
+  '@prisma/config>deepmerge-ts': '8.0.2'
 allowBuilds:
   '@nestjs/core': true
   '@prisma/client': true

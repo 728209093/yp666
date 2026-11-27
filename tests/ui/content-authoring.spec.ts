@@ -48,7 +48,8 @@ test('发布正文可保存字体、字号、颜色，内容视频等待点击�
   await expect(page.getByLabel('视频 URL', {exact: true})).toHaveValue('/uploads/content-video.webm');
   expect(uploads).toBe(1);
   const video = page.getByLabel('视频预览', {exact: true});
-  await expect(video).toHaveAttribute('controls', '');
+  await expect(video).not.toHaveAttribute('controls');
+  await expect(page.getByRole('button', {name: '播放视频预览', exact: true})).toBeVisible();
   expect(await video.evaluate((element: HTMLVideoElement) => ({autoplay: element.autoplay, paused: element.paused}))).toEqual({autoplay: false, paused: true});
   await page.getByRole('button', {name: '保存草稿', exact: true}).click();
   await expect.poll(() => saved?.blocks.length).toBe(2);

@@ -1,6 +1,6 @@
 # Debian / Nginx 部署
 
-使用 Node.js 24、pnpm 11、MySQL 8.4、Nginx 和 systemd。以下路径为部署约定；`project.example.com` 必须替换为解析到服务器的实际域名。前台地址为 `/`，后台为 `/admin/`，API 仅监听本机 `127.0.0.1:3001`。
+使用 Node.js 24、pnpm 11、MySQL 8.4、Nginx 和 systemd。以下路径为部署约定；`project.example.com` 必须替换为解析到服务器的实际域名。前台地址为 `/`，后台入口由服务器配置 `ADMIN_BASE_PATH` 指定，API 仅监听本机 `127.0.0.1:3001`。
 
 视频上传依赖 `ffprobe` 检查实际媒体流。Debian 可执行 `apt-get install --no-install-recommends ffmpeg` 安装，或在环境配置中指定 `FFPROBE_PATH`。
 
@@ -38,6 +38,14 @@ CAPTCHA_PROVIDER=slider
 MYSQL_SSL_CA=certs/mysql-ca.pem
 ```
 
+为后台生成独立的随机入口，将输出原样填入服务器 `.env.local` 的 `ADMIN_BASE_PATH`。该配置不改变管理员账号、密码或已有会话；不要把实际入口写入公开文档或代码仓库：
+
+```sh
+node deploy/render-admin-route.mjs --generate
+```
+
+`ADMIN_BASE_PATH` 必须是以 `/` 开头和结尾的单层路径；仅接受英文字母、数字、下划线和连字符，不允许占用 `/api/`、`/assets/`、`/uploads/` 等公共路径。随机入口减少常见路径扫描，管理员 API 仍需要独立登录鉴权。
+
 `slider` 为自托管轻量拼图；需要第三方验证时使用 `turnstile` 并配置实际密钥。不能将开发用的 `local` 模式用于生产。数据库 CA 放入 shared/certs，配置文件设为 `root:yp666`、`0640`，证书目录保证服务账号可读。实际密码不写入 Git、终端命令或 Nginx 配置。
 
 ## 构建和发布
@@ -62,12 +70,18 @@ ln -s /opt/yp666/shared/.env.local "$release_dir/.env.local"
 ln -s /opt/yp666/shared/data "$release_dir/data"
 ln -s /opt/yp666/shared/certs/mysql-ca.pem "$release_dir/certs/mysql-ca.pem"
 cd "$release_dir"
-pnpm install --frozen-lockfile
+pnpm install --frozen-lockfile --prod=false
 pnpm --filter @yp666/shared build
 pnpm --filter @yp666/api build
 pnpm --filter @yp666/web build
-pnpm --filter @yp666/admin exec vite build --base=/admin/
+pnpm --filter @yp666/admin build
 ```
+
+后台构建会从环境变量或根目录 `.env.local` 读取 `ADMIN_BASE_PATH`，使动态加载的脚本和样式使用同一个入口。不要再传入固定的 `--base=/admin/`。本地 `vite` 开发服务继续使用根路径，不受正式入口影响。
+
+启用 Nginx 模板前先安装共用安全响应头：`install -m 0644 deploy/security-headers.conf /etc/nginx/snippets/yp666-security-headers.conf`。HTTPS 站点及自定义 `add_header` 的 location 都要包含它，保证 CSP 和 HSTS 不因 Nginx 的继承规则丢失。CSP 允许本站脚本、图片/视频 HTTPS 资源和可选的 Turnstile；禁止插件、非本站表单提交及第三方页面嵌入。不要为任意来源增加脚本权限。
+
+每日加密备份、离机副本和恢复检查见 [备份说明](./deploy/BACKUPS.md)。上传和登录有独立限流及并发上限；多 API 实例部署时仍需共享限流状态。
 
 先验证配置和数据库可连接。已有项目数据库不需要再次初始化，也不要在正式站点上运行会修改内容的端到端测试。新建空数据库时，可按 [数据库说明](./DATABASE.example.md) 初始化。
 
@@ -110,10 +124,19 @@ certbot certonly --webroot -w /var/www/letsencrypt -d your-domain.example
 证书签发后切换 HTTPS 模板：
 
 ```sh
+umask 077
+admin_snippet=$(mktemp /tmp/yp666-admin-route.XXXXXX)
+node deploy/render-admin-route.mjs > "$admin_snippet"
+install -d -m 0755 /etc/nginx/snippets
+install -m 0640 -o root -g www-data "$admin_snippet" /etc/nginx/snippets/yp666-admin-route.conf
 sed 's/project.example.com/your-domain.example/g' deploy/nginx.conf > /etc/nginx/sites-available/yp666
 nginx -t
 systemctl reload nginx
 ```
+
+HTTPS 模板包含上述片段。片段会将 `/admin` 和 `/admin/` 返回 404，不会跳转到新入口或回退到前台 SPA；新入口本身禁止缓存、搜索引擎索引和来源路径外泄。若已有多个本项目域名，每个 HTTPS 虚拟主机都需引用同一个片段。保留服务器已有的域名及证书路径，不要直接覆盖其他站点。
+
+更换已上线入口时，先在独立 release 按新 `ADMIN_BASE_PATH` 完成构建，备份旧片段，再生成新片段；使用 `--previous-path /旧入口/` 可同时屏蔽上一入口。代码和片段应在同次发布中切换，执行 `nginx -t` 并重载后验证新入口和静态资源。如果回退，必须同时恢复旧 release 与旧片段。生成器只渲染配置，不自动更改服务器文件或账号。
 
 确认 certbot 自动续期任务已开启，并配置成功续期后的 `systemctl reload nginx` deploy hook。若 Nginx 前还有可信 CDN，应重新审查真实 IP 和可信代理配置；当前模板只信任本机 Nginx，并覆盖外部传入的 `X-Forwarded-For`。
 
@@ -123,9 +146,11 @@ systemctl reload nginx
 
 ```text
 https://project.example.com/
-https://project.example.com/admin/
+https://project.example.com/<ADMIN_BASE_PATH 中的入口>/
 https://project.example.com/api/health
 ```
+
+另确认 `/admin`、`/admin/`、`/admin/index.html` 均返回 404，新入口的 JS / CSS 可正常加载，未登录调用 `/api/admin/visits` 返回 401。路径配置的纯测试使用 `node --test deploy/tests/admin-path.test.mjs`，不连接数据库。
 
 故障排查使用 `systemctl status yp666-api.service`、`journalctl -u yp666-api.service -n 100`、`nginx -t` 及项目 Nginx 错误日志。systemd 提供开机启动和进程异常重启。
 

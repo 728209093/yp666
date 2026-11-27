@@ -10,11 +10,13 @@ MYSQL_PORT=3306
 MYSQL_DATABASE=yp666
 MYSQL_USER=yp666_app
 MYSQL_PASSWORD=replace-with-your-password
-MYSQL_SSL_MODE=VERIFY_CA
 MYSQL_SSL_CA=certs/mysql-ca.pem
+MYSQL_SSL_SERVERNAME=db.example.com
 ```
 
-从数据库管理员处获取公共 CA 证书，保存到 `certs/mysql-ca.pem`。当前后端在配置 CA 后会校验服务器证书的签发 CA，不校验证书的主机名；请使用可信来源提供的 CA。生产环境必须配置 CA。
+从数据库管理员处获取公共 CA 证书，保存到 `certs/mysql-ca.pem`。后端验证证书链及数据库服务器身份，最低使用 TLS 1.2，生产环境必须配置 CA。通常不需要设置 `MYSQL_SSL_SERVERNAME`；使用隧道、连接地址与证书 DNS 名称不同时，将它设置为证书中对应的实际数据库域名。
+
+对没有 DNS SAN 的旧证书，可改用 `MYSQL_SSL_SERVER_FINGERPRINT` 固定服务器证书的 SHA-256 指纹，仍会验证 CA 链。指纹须通过受信任的运维连接或数据库管理员取得，不能从未验证的网络连接直接信任。证书不匹配将拒绝连接；轮换数据库证书前须同步更新固定指纹。不要关闭证书验证。
 
 数据库服务端应要求应用账号通过 TLS 连接，并按实际客户端出口地址设置网络白名单。数据库连接信息只由后端读取，不要放入 `VITE_*` 等前端变量。
 

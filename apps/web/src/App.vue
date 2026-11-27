@@ -53,6 +53,12 @@ const primaryColor = computed(() => content.value?.settings.primaryColor || boot
 const mustVerify = computed(() => !!bootstrap.value?.verificationRequired && !bootstrap.value?.verified);
 const pageTitle = computed(() => content.value?.settings.pageTitle || bootstrap.value?.site.pageTitle || '在线客服');
 const loadingText = computed(() => content.value?.settings.loadingText || bootstrap.value?.site.loadingText || '正在加载，请稍候…');
+const serviceNameSize = computed(() => {
+  const size = Number(content.value?.settings.serviceNameFontSize ?? bootstrap.value?.site.serviceNameFontSize ?? 14);
+  return Number.isFinite(size) ? Math.min(18, Math.max(12, Math.round(size))) : 14;
+});
+const defaultFavicon = '/assets/favicon.svg';
+const faviconUrl = computed(() => safeAsset(content.value?.settings.faviconUrl ?? bootstrap.value?.site.faviconUrl) || defaultFavicon);
 const blocks = computed(() => content.value?.blocks.filter(block => block.enabled).sort((a, b) => a.sortOrder - b.sortOrder) || []);
 const faqs = computed(() => content.value?.faqs.filter(faq => faq.enabled) || []);
 const visibleMessages = computed(() => messages.value.filter(message => !(message.role === 'assistant' && (!message.type || message.type === 'text') && message.content === content.value?.settings.welcomeMessage)));
@@ -220,6 +226,24 @@ function trapDialogKeys(event: KeyboardEvent) {
   if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); } else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
 }
 watch([pageTitle, unread], () => { document.title = `${unread.value ? `（${unread.value}条新消息）` : ''}${pageTitle.value}`; }, {immediate: true});
+watch(faviconUrl, (url, _previous, onCleanup) => {
+  let active = true;
+  function applyIcon(href: string) {
+    if (!active) return;
+    for (const rel of ['icon', 'apple-touch-icon']) {
+      let link = document.head.querySelector<HTMLLinkElement>(`link[rel="${rel}"]`);
+      if (!link) {link = document.createElement('link'); link.rel = rel; document.head.appendChild(link);}
+      link.removeAttribute('type');
+      link.href = href;
+    }
+  }
+  if (url === defaultFavicon) {applyIcon(defaultFavicon); return;}
+  const image = new Image();
+  image.onload = () => applyIcon(url);
+  image.onerror = () => applyIcon(defaultFavicon);
+  image.src = url;
+  onCleanup(() => {active = false; image.onload = null; image.onerror = null;});
+}, {immediate: true});
 watch(() => !!(showHelp.value || imagePreview.value), async open => { if (open) { previousFocus = document.activeElement as HTMLElement | null; await nextTick(); dialog.value?.querySelector<HTMLElement>('button')?.focus(); } else previousFocus?.focus(); });
 onMounted(() => {
   try { soundEnabled.value = localStorage.getItem('yp666-reply-sound') !== 'false'; } catch { /* Optional preference. */ }
@@ -231,7 +255,7 @@ onBeforeUnmount(() => { disposed = true; if (poll) clearInterval(poll); if (toas
 </script>
 
 <template>
-  <div class="site-shell" :class="{ 'room-active': !!content && !mustVerify }" :style="{ '--primary': primaryColor }">
+  <div class="site-shell" :class="{ 'room-active': !!content && !mustVerify }" :style="{ '--primary': primaryColor, '--service-name-size': `${serviceNameSize}px`, ...(content && !mustVerify ? chatBackground : gateBackground) }">
     <main v-if="!loading && !bootstrap" class="connection-error"><ShieldCheck :size="38" /><h1>暂时无法连接</h1><p>{{ fatalError }}</p><button class="primary-button" @click="initialize">重新连接 <RefreshCw :size="17" /></button></main>
     <main v-else-if="!loading && (mustVerify || !content)" class="verification-screen" :style="gateBackground">
       <section class="verification-dialog" role="dialog" aria-modal="true" aria-labelledby="verification-title">

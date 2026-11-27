@@ -14,6 +14,7 @@ import { securityMiddleware } from './security.js';
 class ApiExceptionFilter implements ExceptionFilter {
   catch(error:unknown,host:ArgumentsHost) {
     const response=host.switchToHttp().getResponse<Response>();
+    response.setHeader('Cache-Control','no-store');
     if(error instanceof HttpException) {
       const body=error.getResponse();
       const message=typeof body==='string'?body:(body as {message?:string|string[]}).message;

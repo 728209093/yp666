@@ -6,10 +6,12 @@ const props = defineProps<{src: string; label?: string}>();
 const emit = defineEmits<{(event: 'loadedmetadata', value: Event): void}>();
 const video = ref<HTMLVideoElement>();
 const playing = ref(false);
+const hasStarted = ref(false);
 const playbackError = ref('');
 
 watch(() => props.src, () => {
   playing.value = false;
+  hasStarted.value = false;
   playbackError.value = '';
 });
 
@@ -32,9 +34,9 @@ async function play() {
 
 <template>
   <div class="video-player">
-    <video ref="video" :src="src" :aria-label="label || '视频'" controls playsinline preload="metadata"
-      @play="playing = true; playbackError = ''" @pause="playing = false" @ended="playing = false"
-      @emptied="playing = false" @error="playing = false"
+    <video ref="video" :src="src" :aria-label="label || '视频'" :controls="hasStarted" playsinline preload="metadata"
+      @play="hasStarted = true; playing = true; playbackError = ''" @pause="playing = false" @ended="playing = false"
+      @emptied="hasStarted = false; playing = false" @error="playing = false"
       @loadedmetadata="emit('loadedmetadata', $event)"></video>
     <button v-if="!playing" class="video-play-button" type="button" :aria-label="`播放${label || '视频'}`" @click="play">
       <Play :size="27" :stroke-width="1.8" fill="currentColor" aria-hidden="true"/>
@@ -46,6 +48,8 @@ async function play() {
 <style scoped>
 .video-player{position:relative;display:block;max-width:100%;background:#17201a;overflow:hidden;isolation:isolate}
 .video-player>video{display:block;width:100%;max-width:100%;height:auto;max-height:var(--video-max-height,none);object-fit:contain}
+/* Keep the native seek/volume controls after playback starts, with one central play button. */
+.video-player>video::-webkit-media-controls-start-playback-button,.video-player>video::-webkit-media-controls-overlay-play-button{display:none!important;-webkit-appearance:none}
 .video-play-button{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);z-index:1;display:flex;align-items:center;justify-content:center;width:58px;height:58px;padding:0;border:1px solid #ffffffa6;border-radius:50%;background:#14231bc7;color:#fff;cursor:pointer;box-shadow:0 3px 15px #0003;touch-action:manipulation}
 .video-play-button:hover{background:#21392deb}
 .video-play-button:focus-visible{outline:3px solid #fff;outline-offset:4px}

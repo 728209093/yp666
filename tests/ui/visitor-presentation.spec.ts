@@ -102,7 +102,7 @@ test('发布视频和聊天视频都等待点击播放', async ({page}) => {
     expect(await video.evaluate(node => {
       const video = node as HTMLVideoElement;
       return {paused: video.paused, autoplay: video.autoplay, controls: video.controls, playsInline: video.playsInline};
-    })).toEqual({paused: true, autoplay: false, controls: true, playsInline: true});
+    })).toEqual({paused: true, autoplay: false, controls: false, playsInline: true});
   }
   expect(await page.evaluate(() => (window as unknown as {videoPlays: number}).videoPlays)).toBe(0);
   await page.getByRole('button', {name: '播放聊天视频', exact: true}).click();
